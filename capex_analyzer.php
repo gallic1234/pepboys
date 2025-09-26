@@ -131,15 +131,14 @@ DETERMINATION: [YES/NO]
 JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria in 1-2 sentences]";
 
     $data = [
-        'model' => 'grok-beta',
+        'model' => 'grok-2',
         'messages' => [
             [
                 'role' => 'user',
                 'content' => $prompt
             ]
         ],
-        'temperature' => 0.3,
-        'max_tokens' => 300
+        'temperature' => 0.7
     ];
 
     $ch = curl_init('https://api.x.ai/v1/chat/completions');
