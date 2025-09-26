@@ -5,30 +5,104 @@ require_once 'config.php';
 $apiKey = defined('GROK_API_KEY') ? GROK_API_KEY : getenv('GROK_API_KEY');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
+    // Disable output buffering for real-time updates
+    @ob_end_clean();
+    header('Content-Type: text/html; charset=utf-8');
+
+    // Start HTML output for processing page
+    ?>
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Processing CSV - CAPEX Analyzer</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+        <style>
+            .processing-container {
+                padding: 2rem;
+                max-width: 1200px;
+                margin: 0 auto;
+            }
+            .progress-info {
+                background: #f8f9fa;
+                padding: 1rem;
+                border-radius: 5px;
+                margin-bottom: 1rem;
+            }
+            .row-result {
+                padding: 0.5rem;
+                margin: 0.25rem 0;
+                border-left: 3px solid #dee2e6;
+                background: white;
+            }
+            .row-result.success { border-left-color: #28a745; }
+            .row-result.error { border-left-color: #dc3545; }
+            .row-result.pending { border-left-color: #ffc107; }
+            .results-container {
+                max-height: 500px;
+                overflow-y: auto;
+                border: 1px solid #dee2e6;
+                border-radius: 5px;
+                padding: 1rem;
+                background: #ffffff;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="processing-container">
+            <h2>Processing CSV File...</h2>
+            <div class="progress mb-3">
+                <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+            </div>
+            <div class="progress-info">
+                <p id="statusText">Initializing...</p>
+            </div>
+            <div class="results-container" id="results">
+    <?php
+    flush();
+
     $uploadedFile = $_FILES['csvFile'];
 
     if ($uploadedFile['error'] !== UPLOAD_ERR_OK) {
-        $_SESSION['error'] = 'Upload failed with error code: ' . $uploadedFile['error'];
-        header('Location: ' . $_SERVER['PHP_SELF']);
+        echo '<div class="alert alert-danger">Upload failed with error code: ' . $uploadedFile['error'] . '</div>';
+        echo '</div></div></body></html>';
         exit;
     }
 
     if (pathinfo($uploadedFile['name'], PATHINFO_EXTENSION) !== 'csv') {
-        $_SESSION['error'] = 'Please upload a CSV file';
-        header('Location: ' . $_SERVER['PHP_SELF']);
+        echo '<div class="alert alert-danger">Please upload a CSV file</div>';
+        echo '</div></div></body></html>';
         exit;
     }
 
     $tempFile = $uploadedFile['tmp_name'];
     $outputFile = sys_get_temp_dir() . '/capex_analysis_' . uniqid() . '.csv';
 
-    processCSV($tempFile, $outputFile, $apiKey);
+    // Process CSV with real-time updates
+    processCSVRealtime($tempFile, $outputFile, $apiKey);
 
     $_SESSION['results_file'] = $outputFile;
     $_SESSION['original_filename'] = pathinfo($uploadedFile['name'], PATHINFO_FILENAME);
     $_SESSION['processing_complete'] = true;
 
-    header('Location: ' . $_SERVER['PHP_SELF']);
+    ?>
+            </div>
+            <div class="mt-4">
+                <a href="?download=1" class="btn btn-success">📥 Download Results CSV</a>
+                <a href="<?php echo $_SERVER['PHP_SELF']; ?>" class="btn btn-secondary">🔄 Analyze Another File</a>
+            </div>
+        </div>
+        <script>
+            setTimeout(function() {
+                document.getElementById('statusText').innerHTML = '<strong>✅ Processing Complete!</strong>';
+                document.getElementById('progressBar').style.width = '100%';
+                document.getElementById('progressBar').classList.remove('progress-bar-animated');
+            }, 500);
+        </script>
+    </body>
+    </html>
+    <?php
     exit;
 }
 
@@ -40,6 +114,132 @@ if (isset($_GET['download']) && isset($_SESSION['results_file'])) {
         readfile($file);
         exit;
     }
+}
+
+function processCSVRealtime($inputFile, $outputFile, $apiKey) {
+    $input = fopen($inputFile, 'r');
+    $output = fopen($outputFile, 'w');
+
+    if (!$input || !$output) {
+        echo '<div class="alert alert-danger">Failed to process files</div>';
+        return false;
+    }
+
+    $headers = fgetcsv($input);
+    if (!$headers) {
+        echo '<div class="alert alert-danger">Empty CSV file</div>';
+        return false;
+    }
+
+    $newHeaders = array_merge($headers, ['CAPEX Determination', 'Justification']);
+    fputcsv($output, $newHeaders);
+
+    // Count total rows for progress
+    $totalRows = 0;
+    while (fgetcsv($input) !== false) {
+        $totalRows++;
+    }
+    rewind($input);
+    fgetcsv($input); // Skip headers again
+
+    $_SESSION['processed_rows'] = [];
+    $rowNumber = 0;
+    $processedCount = 0;
+
+    echo '<script>document.getElementById("statusText").innerHTML = "Processing ' . $totalRows . ' rows...";</script>';
+    flush();
+
+    while (($row = fgetcsv($input)) !== false) {
+        $rowNumber++;
+        $processedCount++;
+        $progress = round(($processedCount / $totalRows) * 100);
+
+        echo '<script>
+            document.getElementById("progressBar").style.width = "' . $progress . '%";
+            document.getElementById("statusText").innerHTML = "Processing row ' . $processedCount . ' of ' . $totalRows . '...";
+        </script>';
+        flush();
+
+        if (count($row) < 4) {
+            $row[] = 'N/A';
+            $row[] = 'Insufficient data - row has less than 4 columns';
+            fputcsv($output, $row);
+
+            echo '<div class="row-result error">
+                    <strong>Row ' . $rowNumber . ':</strong>
+                    <span class="badge bg-warning text-dark">SKIPPED</span> - Insufficient columns
+                  </div>';
+            flush();
+            continue;
+        }
+
+        $description = $row[3];
+
+        if (empty(trim($description))) {
+            $row[] = 'N/A';
+            $row[] = 'No description provided';
+            fputcsv($output, $row);
+
+            echo '<div class="row-result error">
+                    <strong>Row ' . $rowNumber . ':</strong>
+                    <span class="badge bg-warning text-dark">SKIPPED</span> - No description
+                  </div>';
+            flush();
+            continue;
+        }
+
+        // Show what we're analyzing
+        echo '<div class="row-result pending" id="row-' . $rowNumber . '">
+                <strong>Row ' . $rowNumber . ':</strong>
+                <span class="text-muted">Analyzing: ' . htmlspecialchars(substr($description, 0, 100)) . '...</span>
+              </div>';
+        flush();
+
+        $analysis = analyzeWithGrok($description, $apiKey);
+
+        $row[] = $analysis['determination'];
+        $row[] = $analysis['justification'];
+
+        fputcsv($output, $row);
+
+        // Update the row with results
+        $badgeClass = 'bg-secondary';
+        $borderClass = 'error';
+        if ($analysis['determination'] === 'YES') {
+            $badgeClass = 'bg-success';
+            $borderClass = 'success';
+        } elseif ($analysis['determination'] === 'NO') {
+            $badgeClass = 'bg-danger';
+            $borderClass = 'success';
+        } elseif ($analysis['determination'] === 'ERROR') {
+            $badgeClass = 'bg-warning text-dark';
+            $borderClass = 'error';
+        }
+
+        echo '<script>
+            document.getElementById("row-' . $rowNumber . '").className = "row-result ' . $borderClass . '";
+            document.getElementById("row-' . $rowNumber . '").innerHTML =
+                "<strong>Row ' . $rowNumber . ':</strong> " +
+                "<span class=\"badge ' . $badgeClass . '\">CAPEX: ' . $analysis['determination'] . '</span> - " +
+                "<small>' . htmlspecialchars(addslashes($analysis['justification'])) . '</small>";
+        </script>';
+        flush();
+
+        $_SESSION['processed_rows'][] = [
+            'row' => $rowNumber,
+            'description' => substr($description, 0, 100),
+            'determination' => $analysis['determination'],
+            'justification' => $analysis['justification']
+        ];
+
+        // Small delay to prevent API rate limiting
+        usleep(300000); // 0.3 seconds
+    }
+
+    fclose($input);
+    fclose($output);
+
+    return true;
 }
 
 function processCSV($inputFile, $outputFile, $apiKey) {
