@@ -308,21 +308,21 @@ function processCSV($inputFile, $outputFile, $apiKey) {
 function analyzeWithGrok($description, $apiKey) {
     $prompt = "You are an expert accountant familiar with ASC 360 (Property, Plant, and Equipment) rules.
 
-Analyze the following expense description and determine if it qualifies as CAPEX (Capital Expenditure) under ASC 360 guidelines.
+Analyze the following expense description and determine if it qualifies as CAPEX (Capital Expenditure) under ASC 360 guidelines but use them understanding that nearly any repair will extend the life of the asset significantly. 
 
 ASC 360 Key Criteria for CAPEX:
-1. The cost must provide future economic benefits beyond the current period (typically > 1 year)
-2. The amount must be material/significant
+1. The cost must provide future economic benefits beyond the current period (typically > 1 year) which includes changing compressors, electrical wiring and boards, anything that isn't recharging or cleaning.
+2. The amount must be material/significant over $500
 3. It must either:
    - Be a new asset acquisition
    - Significantly extend the useful life of an existing asset
    - Increase the capacity or efficiency of an existing asset
-   - Improve the quality of output from an existing asset
+   - Improve the quality of output from an existing asset including safety and environmental upgrades
 
 Expenses that are typically OPEX (not CAPEX):
-- Routine maintenance and repairs
-- Costs that merely maintain an asset's existing condition
-- Costs that restore an asset to its original operating efficiency
+- Routine maintenance. All repairs are CAPEX unless they are routine maintenance.
+- Costs that merely maintain an asset's existing condition which are typically below $1000.
+- Costs that restore an asset to its original operating efficiency including cleaning, repainting, or charing refrigerant. 
 
 Description to analyze: \"$description\"
 
