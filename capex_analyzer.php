@@ -1,7 +1,8 @@
 <?php
 session_start();
+require_once 'config.php';
 
-$apiKey = getenv('GROK_API_KEY') ?: 'YOUR_API_KEY_HERE';
+$apiKey = defined('GROK_API_KEY') ? GROK_API_KEY : getenv('GROK_API_KEY');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     $uploadedFile = $_FILES['csvFile'];
@@ -130,15 +131,20 @@ DETERMINATION: [YES/NO]
 JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria in 1-2 sentences]";
 
     $data = [
-        'model' => 'grok-2-1212',
+        'model' => 'grok-beta',
         'messages' => [
+            [
+                'role' => 'system',
+                'content' => 'You are an expert accountant familiar with ASC 360 accounting rules. Provide concise, accurate determinations.'
+            ],
             [
                 'role' => 'user',
                 'content' => $prompt
             ]
         ],
         'temperature' => 0.3,
-        'max_tokens' => 300
+        'max_tokens' => 300,
+        'stream' => false
     ];
 
     $ch = curl_init('https://api.x.ai/v1/chat/completions');
