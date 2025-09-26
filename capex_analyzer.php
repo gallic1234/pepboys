@@ -154,9 +154,12 @@ function processCSVRealtime($inputFile, $outputFile, $apiKey) {
         $processedCount++;
         $progress = round(($processedCount / $totalRows) * 100);
 
+        // Get work order number from first column (index 0)
+        $workOrderNumber = isset($row[0]) ? trim($row[0]) : 'Row ' . $rowNumber;
+
         echo '<script>
             document.getElementById("progressBar").style.width = "' . $progress . '%";
-            document.getElementById("statusText").innerHTML = "Processing row ' . $processedCount . ' of ' . $totalRows . '...";
+            document.getElementById("statusText").innerHTML = "Processing work order ' . $processedCount . ' of ' . $totalRows . '...";
         </script>';
         flush();
 
@@ -166,7 +169,7 @@ function processCSVRealtime($inputFile, $outputFile, $apiKey) {
             fputcsv($output, $row);
 
             echo '<div class="row-result error">
-                    <strong>Row ' . $rowNumber . ':</strong>
+                    <strong>WO# ' . htmlspecialchars($workOrderNumber) . ':</strong>
                     <span class="badge bg-warning text-dark">SKIPPED</span> - Insufficient columns
                   </div>';
             flush();
@@ -181,7 +184,7 @@ function processCSVRealtime($inputFile, $outputFile, $apiKey) {
             fputcsv($output, $row);
 
             echo '<div class="row-result error">
-                    <strong>Row ' . $rowNumber . ':</strong>
+                    <strong>WO# ' . htmlspecialchars($workOrderNumber) . ':</strong>
                     <span class="badge bg-warning text-dark">SKIPPED</span> - No description
                   </div>';
             flush();
@@ -190,7 +193,7 @@ function processCSVRealtime($inputFile, $outputFile, $apiKey) {
 
         // Show what we're analyzing
         echo '<div class="row-result pending" id="row-' . $rowNumber . '">
-                <strong>Row ' . $rowNumber . ':</strong>
+                <strong>WO# ' . htmlspecialchars($workOrderNumber) . ':</strong>
                 <span class="text-muted">Analyzing: ' . htmlspecialchars(substr($description, 0, 100)) . '...</span>
               </div>';
         flush();
@@ -219,14 +222,14 @@ function processCSVRealtime($inputFile, $outputFile, $apiKey) {
         echo '<script>
             document.getElementById("row-' . $rowNumber . '").className = "row-result ' . $borderClass . '";
             document.getElementById("row-' . $rowNumber . '").innerHTML =
-                "<strong>Row ' . $rowNumber . ':</strong> " +
+                "<strong>WO# ' . htmlspecialchars(addslashes($workOrderNumber)) . ':</strong> " +
                 "<span class=\"badge ' . $badgeClass . '\">CAPEX: ' . $analysis['determination'] . '</span> - " +
                 "<small>' . htmlspecialchars(addslashes($analysis['justification'])) . '</small>";
         </script>';
         flush();
 
         $_SESSION['processed_rows'][] = [
-            'row' => $rowNumber,
+            'work_order' => $workOrderNumber,
             'description' => substr($description, 0, 100),
             'determination' => $analysis['determination'],
             'justification' => $analysis['justification']
@@ -306,9 +309,22 @@ function processCSV($inputFile, $outputFile, $apiKey) {
 }
 
 function analyzeWithGrok($description, $apiKey) {
+    // Clean and sanitize the description
+    $description = str_replace(["\r", "\n", "\t"], ' ', $description); // Remove line breaks and tabs
+    $description = preg_replace('/\s+/', ' ', $description); // Replace multiple spaces with single space
+    $description = trim($description);
+    $description = str_replace('"', '\"', $description); // Escape quotes
+    $description = str_replace('\\', '\\\\', $description); // Escape backslashes
+    $description = preg_replace('/[^\x20-\x7E]/', '', $description); // Remove non-printable characters
+
+    // Additional cleaning for problematic characters
+    $description = str_replace("'", "'", $description); // Replace smart quotes
+    $description = str_replace([""", """], '"', $description); // Replace smart double quotes
+    $description = str_replace(["–", "—"], "-", $description); // Replace em/en dashes
+
     $prompt = "You are an expert accountant familiar with ASC 360 (Property, Plant, and Equipment) rules.
 
-Analyze the following expense description and determine if it qualifies as CAPEX (Capital Expenditure) under ASC 360 guidelines but use them understanding that nearly any repair will extend the life of the asset significantly. 
+Analyze the following expense description and determine if it qualifies as CAPEX (Capital Expenditure) under ASC 360 guidelines but use them understanding that nearly any repair will extend the life of the asset significantly.
 
 ASC 360 Key Criteria for CAPEX:
 1. The cost must provide future economic benefits beyond the current period (typically > 1 year) which includes changing compressors, electrical wiring and boards, anything that isn't recharging or cleaning.
@@ -322,16 +338,15 @@ ASC 360 Key Criteria for CAPEX:
 Expenses that are typically OPEX (not CAPEX):
 - Routine maintenance. All repairs are CAPEX unless they are routine maintenance.
 - Costs that merely maintain an asset's existing condition which are typically below $1000.
-- Costs that restore an asset to its original operating efficiency including cleaning, repainting, or charing refrigerant. 
+- Costs that restore an asset to its original operating efficiency including cleaning, repainting, or charing refrigerant.
 
-Description to analyze: \"$description\"
+Description to analyze: " . $description . "
 
 Please respond in the following format:
 DETERMINATION: [YES/NO]
 JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria in 1-2 sentences]
 
-Speed of analysis is important, analysis per request should not exceed 10 seconds.
-";
+Speed of analysis is important, analysis per request should not exceed 10 seconds.";
 
     $data = [
         'model' => 'grok-3-mini',
@@ -345,16 +360,28 @@ Speed of analysis is important, analysis per request should not exceed 10 second
     ];
 
     // Debug: Log the request data
-    error_log("Grok API Request: " . json_encode($data));
+    error_log("Grok API Request: " . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+
+    // Ensure proper JSON encoding with all necessary flags
+    $jsonPayload = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    // Additional check for JSON encoding errors
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        error_log("JSON Encoding Error: " . json_last_error_msg());
+        return [
+            'determination' => 'ERROR',
+            'justification' => 'Failed to encode request data'
+        ];
+    }
 
     $ch = curl_init('https://api.x.ai/v1/chat/completions');
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        'Content-Type: application/json',
+        'Content-Type: application/json; charset=utf-8',
         'Authorization: Bearer ' . $apiKey
     ]);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
 
     $response = curl_exec($ch);
@@ -535,7 +562,7 @@ Speed of analysis is important, analysis per request should not exceed 10 second
                             <table class="table table-striped table-hover">
                                 <thead class="sticky-top bg-white">
                                     <tr>
-                                        <th>Row</th>
+                                        <th>Work Order</th>
                                         <th>Description</th>
                                         <th>CAPEX?</th>
                                         <th>Justification</th>
@@ -544,7 +571,7 @@ Speed of analysis is important, analysis per request should not exceed 10 second
                                 <tbody>
                                     <?php foreach ($_SESSION['processed_rows'] as $result): ?>
                                         <tr>
-                                            <td><?php echo $result['row']; ?></td>
+                                            <td><?php echo htmlspecialchars($result['work_order'] ?? $result['row'] ?? 'N/A'); ?></td>
                                             <td><?php echo htmlspecialchars($result['description']); ?>...</td>
                                             <td>
                                                 <?php
