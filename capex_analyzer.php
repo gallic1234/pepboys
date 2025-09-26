@@ -313,14 +313,12 @@ function analyzeWithGrok($description, $apiKey) {
     $description = str_replace(["\r", "\n", "\t"], ' ', $description); // Remove line breaks and tabs
     $description = preg_replace('/\s+/', ' ', $description); // Replace multiple spaces with single space
     $description = trim($description);
-    $description = str_replace('"', '\"', $description); // Escape quotes
-    $description = str_replace('\\', '\\\\', $description); // Escape backslashes
+
+    // Remove non-ASCII characters and special quotes
     $description = preg_replace('/[^\x20-\x7E]/', '', $description); // Remove non-printable characters
 
-    // Additional cleaning for problematic characters
-    $description = str_replace("'", "'", $description); // Replace smart quotes
-    $description = str_replace([""", """], '"', $description); // Replace smart double quotes
-    $description = str_replace(["–", "—"], "-", $description); // Replace em/en dashes
+    // Escape for JSON after cleaning
+    $description = addslashes($description); // Properly escape for JSON
 
     $prompt = "You are an expert accountant familiar with ASC 360 (Property, Plant, and Equipment) rules.
 
