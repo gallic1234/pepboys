@@ -131,7 +131,7 @@ DETERMINATION: [YES/NO]
 JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria in 1-2 sentences]";
 
     $data = [
-        'model' => 'grok-2',
+        'model' => 'grok-3-mini',
         'messages' => [
             [
                 'role' => 'user',
