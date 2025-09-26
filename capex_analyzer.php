@@ -328,7 +328,10 @@ Description to analyze: \"$description\"
 
 Please respond in the following format:
 DETERMINATION: [YES/NO]
-JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria in 1-2 sentences]";
+JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria in 1-2 sentences]
+
+Speed of analysis is important, analysis per request should not exceed 10 seconds.
+";
 
     $data = [
         'model' => 'grok-3-mini',
