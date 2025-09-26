@@ -320,13 +320,13 @@ function analyzeWithGrok($description, $apiKey) {
     // Escape for JSON after cleaning
     $description = addslashes($description); // Properly escape for JSON
 
-    $prompt = "You are an expert accountant familiar with ASC 360 (Property, Plant, and Equipment) rules.
+    $prompt = "You are an expert accountant familiar with ASC 360 (Property, Plant, and Equipment) rules. And this analysis should be quick and not in depth.
 
 Analyze the following expense description and determine if it qualifies as CAPEX (Capital Expenditure) under ASC 360 guidelines but use them understanding that nearly any repair will extend the life of the asset significantly.
 
 ASC 360 Key Criteria for CAPEX:
 1. The cost must provide future economic benefits beyond the current period (typically > 1 year) which includes changing compressors, electrical wiring and boards, anything that isn't recharging or cleaning.
-2. The amount must be material/significant over $500
+2. The amount must be material/significant over $500 but this should not be mentioned in the justification.
 3. It must either:
    - Be a new asset acquisition
    - Significantly extend the useful life of an existing asset
@@ -515,7 +515,7 @@ Speed of analysis is important, analysis per request should not exceed 10 second
                             <p id="fileName" class="mt-2 text-primary"></p>
                         </div>
                         <button type="submit" class="btn btn-primary btn-lg mt-3 w-100" id="analyzeBtn">
-                            Analyze with Grok AI
+                            Analyze
                         </button>
                     </form>
                 </div>
@@ -526,7 +526,7 @@ Speed of analysis is important, analysis per request should not exceed 10 second
                     <h5 class="card-title">How it Works</h5>
                     <ol>
                         <li>Upload a CSV file containing expense descriptions in the 4th column</li>
-                        <li>Each description is analyzed using Grok AI against ASC 360 criteria</li>
+                        <li>Each description is analyzed against ASC 360 criteria</li>
                         <li>Get instant CAPEX/OPEX determinations with justifications</li>
                         <li>Download the enhanced CSV with analysis results</li>
                     </ol>
