@@ -347,7 +347,7 @@ JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria i
 Speed of analysis is important, analysis per request should not exceed 10 seconds.";
 
     $data = [
-        'model' => 'grok-3-mini',
+        'model' => 'grok-4-fast-non-reasoning',
         'messages' => [
             [
                 'role' => 'user',
