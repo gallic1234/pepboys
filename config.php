@@ -1,6 +1,6 @@
 <?php
 
-define('GROK_API_KEY', 'Yxai-LPJvxRpSMRGQnB9B7hEfWWwbDDQm1hZ4XZkiFAOdyeljDAUnQ5B5LUuR1csTMTNifHCsJyK62j0eRQ7x');
+define('GROK_API_KEY', 'xai-LPJvxRpSMRGQnB9B7hEfWWwbDDQm1hZ4XZkiFAOdyeljDAUnQ5B5LUuR1csTMTNifHCsJyK62j0eRQ7x');
 
 define('API_TIMEOUT', 30);
 

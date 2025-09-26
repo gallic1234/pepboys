@@ -141,14 +141,17 @@ JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria i
         'temperature' => 0.7
     ];
 
+    // Debug: Log the request data
+    error_log("Grok API Request: " . json_encode($data));
+
     $ch = curl_init('https://api.x.ai/v1/chat/completions');
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
         'Content-Type: application/json',
         'Authorization: Bearer ' . $apiKey
     ]);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
 
     $response = curl_exec($ch);
@@ -166,6 +169,9 @@ JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria i
             if (isset($errorData['error']['message'])) {
                 $errorMsg .= " - " . $errorData['error']['message'];
             }
+            // Output to browser console for debugging
+            echo "<script>console.error('API Error Details:', " . json_encode($errorData) . ");</script>";
+            error_log("Grok API Error: " . json_encode($errorData));
         }
         return [
             'determination' => 'ERROR',
