@@ -134,17 +134,12 @@ JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria i
         'model' => 'grok-beta',
         'messages' => [
             [
-                'role' => 'system',
-                'content' => 'You are an expert accountant familiar with ASC 360 accounting rules. Provide concise, accurate determinations.'
-            ],
-            [
                 'role' => 'user',
                 'content' => $prompt
             ]
         ],
         'temperature' => 0.3,
-        'max_tokens' => 300,
-        'stream' => false
+        'max_tokens' => 300
     ];
 
     $ch = curl_init('https://api.x.ai/v1/chat/completions');
@@ -159,12 +154,23 @@ JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria i
 
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
     curl_close($ch);
 
     if ($httpCode !== 200 || !$response) {
+        $errorMsg = "API Error (HTTP $httpCode)";
+        if ($curlError) {
+            $errorMsg .= " - CURL: $curlError";
+        }
+        if ($response) {
+            $errorData = json_decode($response, true);
+            if (isset($errorData['error']['message'])) {
+                $errorMsg .= " - " . $errorData['error']['message'];
+            }
+        }
         return [
             'determination' => 'ERROR',
-            'justification' => "API Error (HTTP $httpCode)"
+            'justification' => $errorMsg
         ];
     }
 
