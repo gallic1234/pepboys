@@ -2,7 +2,7 @@
 session_start();
 require_once 'config.php';
 
-$apiKey = defined('GROK_API_KEY') ? GROK_API_KEY : getenv('GROK_API_KEY');
+$apiKey = defined('GEMINI_API_KEY') ? GEMINI_API_KEY : getenv('GEMINI_API_KEY');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     // Disable output buffering for real-time updates
@@ -198,7 +198,7 @@ function processCSVRealtime($inputFile, $outputFile, $apiKey) {
               </div>';
         flush();
 
-        $analysis = analyzeWithGrok($description, $apiKey);
+        $analysis = analyzeWithGemini($description, $apiKey);
 
         $row[] = $analysis['determination'];
         $row[] = $analysis['justification'];
@@ -285,7 +285,7 @@ function processCSV($inputFile, $outputFile, $apiKey) {
             continue;
         }
 
-        $analysis = analyzeWithGrok($description, $apiKey);
+        $analysis = analyzeWithGemini($description, $apiKey);
 
         $row[] = $analysis['determination'];
         $row[] = $analysis['justification'];
@@ -306,6 +306,125 @@ function processCSV($inputFile, $outputFile, $apiKey) {
     fclose($output);
 
     return true;
+}
+
+function analyzeWithGemini($description, $apiKey) {
+    $description = str_replace(["\r", "\n", "\t"], ' ', $description);
+    $description = preg_replace('/\s+/', ' ', $description);
+    $description = trim($description);
+    $description = preg_replace('/[^\x20-\x7E]/', '', $description);
+
+    $prompt = "You are an expert accountant familiar with ASC 360 (Property, Plant, and Equipment) rules. And this analysis should be quick and not in depth.
+
+Analyze the following expense description and determine if it qualifies as CAPEX (Capital Expenditure) under ASC 360 guidelines but use them understanding that nearly any repair will extend the life of the asset significantly.
+
+ASC 360 Key Criteria for CAPEX:
+1. The cost must provide future economic benefits beyond the current period (typically > 1 year) which includes changing compressors, electrical wiring and boards, anything that isn't recharging or cleaning.
+2. The amount must be material/significant over $500 but this should not be mentioned in the justification.
+3. It must either:
+   - Be a new asset acquisition
+   - Significantly extend the useful life of an existing asset
+   - Increase the capacity or efficiency of an existing asset
+   - Improve the quality of output from an existing asset including safety and environmental upgrades
+
+Expenses that are typically OPEX (not CAPEX):
+- Routine maintenance. All repairs are CAPEX unless they are routine maintenance.
+- Costs that merely maintain an asset's existing condition which are typically below $1000.
+- Costs that restore an asset to its original operating efficiency including cleaning, repainting, or charing refrigerant.
+
+Description to analyze: " . $description . "
+
+Please respond in the following format:
+DETERMINATION: [YES/NO]
+JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria in 1-2 sentences]
+
+Speed of analysis is important, analysis per request should not exceed 10 seconds.";
+
+    $data = [
+        'contents' => [
+            [
+                'parts' => [
+                    ['text' => $prompt]
+                ]
+            ]
+        ],
+        'generationConfig' => [
+            'temperature' => 0.7,
+            'maxOutputTokens' => 500
+        ]
+    ];
+
+    $jsonPayload = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        error_log("JSON Encoding Error: " . json_last_error_msg());
+        return [
+            'determination' => 'ERROR',
+            'justification' => 'Failed to encode request data'
+        ];
+    }
+
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' . $apiKey;
+
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json; charset=utf-8'
+    ]);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($httpCode !== 200 || !$response) {
+        $errorMsg = "API Error (HTTP $httpCode)";
+        if ($curlError) {
+            $errorMsg .= " - CURL: $curlError";
+        }
+        if ($response) {
+            $errorData = json_decode($response, true);
+            if (isset($errorData['error']['message'])) {
+                $errorMsg .= " - " . $errorData['error']['message'];
+            }
+            echo "<script>console.error('Gemini API Error:', " . json_encode($errorData) . ");</script>";
+            error_log("Gemini API Error: " . json_encode($errorData));
+        }
+        return [
+            'determination' => 'ERROR',
+            'justification' => $errorMsg
+        ];
+    }
+
+    $responseData = json_decode($response, true);
+
+    if (!isset($responseData['candidates'][0]['content']['parts'][0]['text'])) {
+        return [
+            'determination' => 'ERROR',
+            'justification' => 'Invalid API response'
+        ];
+    }
+
+    $content = $responseData['candidates'][0]['content']['parts'][0]['text'];
+
+    $determination = 'UNKNOWN';
+    $justification = $content;
+
+    if (preg_match('/DETERMINATION:\s*(YES|NO)/i', $content, $matches)) {
+        $determination = strtoupper($matches[1]);
+    }
+
+    if (preg_match('/JUSTIFICATION:\s*(.+)/is', $content, $matches)) {
+        $justification = trim($matches[1]);
+    }
+
+    return [
+        'determination' => $determination,
+        'justification' => $justification
+    ];
 }
 
 function analyzeWithGrok($description, $apiKey) {
