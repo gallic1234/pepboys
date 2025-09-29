@@ -340,7 +340,7 @@ JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria i
 
 Speed of analysis is important, analysis per request should not exceed 10 seconds.";
 
-    $data = [
+    $data = [ 
         'contents' => [
             [
                 'parts' => [
@@ -364,7 +364,7 @@ Speed of analysis is important, analysis per request should not exceed 10 second
         ];
     }
 
-    $url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=' . $apiKey;
+    $url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' . $apiKey;
 
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
