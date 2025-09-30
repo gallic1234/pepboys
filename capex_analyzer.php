@@ -32,11 +32,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
                 margin-bottom: 1rem;
             }
             .row-result {
-                padding: 0.75rem;
-                margin: 0.5rem 0;
-                border-left: 4px solid #dee2e6;
+                padding: 1.25rem;
+                margin: 0.75rem 0;
+                border-left: 5px solid #dee2e6;
                 background: white;
-                border-radius: 5px;
+                border-radius: 8px;
+                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             }
             .row-result.success { border-left-color: #28a745; }
             .row-result.error { border-left-color: #dc3545; }
@@ -195,12 +196,12 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
     // Add new columns to headers
     $newHeaders = array_merge($headers, [
         'CAPEX/OPEX Determination',
-        'CAPEX Amount',
-        'OPEX Amount',
+        'CAPEX Base Amount',
+        'OPEX Base Amount',
         'CAPEX Tax Allocation',
         'OPEX Tax Allocation',
-        'Total CAPEX',
-        'Total OPEX',
+        'Total CAPEX (incl. Tax)',
+        'Total OPEX (incl. Tax)',
         'Justification'
     ]);
     fputcsv($output, $newHeaders);
@@ -241,8 +242,15 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
         flush();
 
         echo '<div class="row-result pending" id="wo-' . htmlspecialchars($workOrderNum) . '">
-                <strong>WO# ' . htmlspecialchars($workOrderNum) . ':</strong>
-                <span class="text-muted">Analyzing ' . count($rows) . ' line items...</span>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <strong style="font-size: 1.1em;">Work Order: ' . htmlspecialchars($workOrderNum) . '</strong>
+                        <span class="text-muted" style="margin-left: 15px;">Processing ' . count($rows) . ' line items...</span>
+                    </div>
+                    <div class="spinner-border spinner-border-sm text-warning" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                </div>
               </div>';
         flush();
 
@@ -285,13 +293,23 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
         echo '<script>
             document.getElementById("wo-' . htmlspecialchars($workOrderNum) . '").className = "row-result ' . $borderClass . '";
             document.getElementById("wo-' . htmlspecialchars($workOrderNum) . '").innerHTML =
-                "<strong>WO# ' . htmlspecialchars(addslashes($workOrderNum)) . ':</strong> " +
-                "<span class=\"badge ' . $badgeClass . '\">' . $analysis['determination'] . '</span>" +
-                "<div class=\"cost-breakdown\">" +
-                "<span class=\"text-success\">CAPEX: $' . number_format($analysis['total_capex'], 2) . '</span>" +
-                "<span class=\"text-danger\">OPEX: $' . number_format($analysis['total_opex'], 2) . '</span>" +
+                "<div style=\'margin-bottom: 10px;\'>" +
+                "<strong style=\'font-size: 1.1em;\'>Work Order: ' . htmlspecialchars(addslashes($workOrderNum)) . '</strong>" +
                 "</div>" +
-                "<br><small>' . htmlspecialchars(addslashes(substr($analysis['justification'], 0, 200))) . '...</small>";
+                "<div style=\'display: flex; align-items: center; gap: 15px; margin-bottom: 10px;\'>" +
+                "<span class=\"badge ' . $badgeClass . '\" style=\'font-size: 1em;\'>' . $analysis['determination'] . '</span>" +
+                "<div style=\'font-weight: bold;\'>" +
+                "<span style=\'color: #28a745; font-size: 1.2em;\'>CAPEX Total (incl. tax): $' . number_format($analysis['total_capex'], 2) . '</span>" +
+                "</div>" +
+                "</div>" +
+                "<div style=\'border-left: 3px solid #6c757d; padding-left: 10px; margin-top: 10px;\'>" +
+                "<strong>Justification:</strong> ' . htmlspecialchars(addslashes($analysis['justification'])) . '" +
+                "</div>" +
+                "<div style=\'margin-top: 10px; font-size: 0.9em; color: #6c757d;\'>" +
+                "<span>Base CAPEX: $' . number_format($analysis['capex_amount'], 2) . ' + Tax: $' . number_format($analysis['capex_tax'], 2) . '</span> | " +
+                "<span>OPEX Total: $' . number_format($analysis['total_opex'], 2) . '</span> | " +
+                "<span>Grand Total: $' . number_format($analysis['total_capex'] + $analysis['total_opex'], 2) . '</span>" +
+                "</div>";
         </script>';
         flush();
 
@@ -472,6 +490,7 @@ function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
 
     // Log what we're parsing
     error_log("Parsing AI response: " . substr($analysis['justification'], 0, 200));
+    echo '<script>console.log("Total cost: $' . number_format($totalCost, 2) . ', Total tax: $' . number_format($totalTax, 2) . '");</script>';
 
     // Extract determination
     if (preg_match('/DETERMINATION:\s*(CAPEX|OPEX|MIXED)/i', $analysis['justification'], $matches)) {
@@ -504,18 +523,39 @@ function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
         }
     }
 
-    // Allocate tax proportionally
-    if ($totalCost > 0) {
-        $capexRatio = $result['capex_amount'] / $totalCost;
-        $opexRatio = $result['opex_amount'] / $totalCost;
+    // Ensure amounts don't exceed total cost (in case AI made an error)
+    $sumAmounts = $result['capex_amount'] + $result['opex_amount'];
+    if ($sumAmounts > $totalCost && $sumAmounts > 0) {
+        // Scale down proportionally
+        $scale = $totalCost / $sumAmounts;
+        $result['capex_amount'] *= $scale;
+        $result['opex_amount'] *= $scale;
+    }
+
+    // Allocate tax proportionally based on the amounts
+    if ($totalCost > 0 && ($result['capex_amount'] > 0 || $result['opex_amount'] > 0)) {
+        // Use actual amounts for ratio calculation
+        $actualTotal = $result['capex_amount'] + $result['opex_amount'];
+        if ($actualTotal > 0) {
+            $capexRatio = $result['capex_amount'] / $actualTotal;
+            $opexRatio = $result['opex_amount'] / $actualTotal;
+        } else {
+            $capexRatio = 0;
+            $opexRatio = 0;
+        }
 
         $result['capex_tax'] = $totalTax * $capexRatio;
         $result['opex_tax'] = $totalTax * $opexRatio;
+
+        echo '<script>console.log("Tax allocation - CAPEX ratio: ' . number_format($capexRatio * 100, 1) . '%, OPEX ratio: ' . number_format($opexRatio * 100, 1) . '%");</script>';
+        echo '<script>console.log("Tax amounts - CAPEX tax: $' . number_format($result['capex_tax'], 2) . ', OPEX tax: $' . number_format($result['opex_tax'], 2) . '");</script>';
     }
 
-    // Calculate totals
+    // Calculate totals INCLUDING TAX
     $result['total_capex'] = $result['capex_amount'] + $result['capex_tax'];
     $result['total_opex'] = $result['opex_amount'] + $result['opex_tax'];
+
+    echo '<script>console.log("Final totals with tax - CAPEX: $' . number_format($result['total_capex'], 2) . ', OPEX: $' . number_format($result['total_opex'], 2) . '");</script>';
 
     return $result;
 }
@@ -947,10 +987,12 @@ JUSTIFICATION: [Professional explanation citing specific items and ASC 360 crite
                                     <div class="cost-item">
                                         <h4>Total CAPEX</h4>
                                         <div class="amount text-success">$<?php echo number_format($totalCapex, 2); ?></div>
+                                        <small class="text-muted">(includes tax)</small>
                                     </div>
                                     <div class="cost-item">
                                         <h4>Total OPEX</h4>
                                         <div class="amount text-danger">$<?php echo number_format($totalOpex, 2); ?></div>
+                                        <small class="text-muted">(includes tax)</small>
                                     </div>
                                     <div class="cost-item">
                                         <h4>Work Orders</h4>
@@ -960,24 +1002,26 @@ JUSTIFICATION: [Professional explanation citing specific items and ASC 360 crite
                             </div>
                         </div>
 
-                        <h6>Work Order Details:</h6>
+                        <h6>Work Order Analysis Details:</h6>
                         <div class="results-table">
                             <table class="table table-striped table-hover">
                                 <thead class="sticky-top bg-white">
                                     <tr>
-                                        <th>Work Order</th>
-                                        <th>Line Items</th>
-                                        <th>Classification</th>
-                                        <th>CAPEX Total</th>
-                                        <th>OPEX Total</th>
-                                        <th>Justification</th>
+                                        <th style="width: 15%;">Work Order Number</th>
+                                        <th style="width: 12%;">Determination</th>
+                                        <th style="width: 15%;">CAPEX Total<br><small class="text-muted">(incl. tax)</small></th>
+                                        <th style="width: 12%;">OPEX Total<br><small class="text-muted">(incl. tax)</small></th>
+                                        <th style="width: 46%;">Justification</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php foreach ($_SESSION['processed_rows'] as $result): ?>
                                         <tr>
-                                            <td><strong><?php echo htmlspecialchars($result['work_order']); ?></strong></td>
-                                            <td><?php echo $result['line_items']; ?></td>
+                                            <td>
+                                                <strong style="font-size: 1.1em;"><?php echo htmlspecialchars($result['work_order']); ?></strong>
+                                                <br>
+                                                <small class="text-muted"><?php echo $result['line_items']; ?> line items</small>
+                                            </td>
                                             <td>
                                                 <?php
                                                 $class = 'badge-error';
@@ -985,13 +1029,17 @@ JUSTIFICATION: [Professional explanation citing specific items and ASC 360 crite
                                                 elseif ($result['determination'] === 'OPEX') $class = 'badge-opex';
                                                 elseif ($result['determination'] === 'MIXED') $class = 'badge-mixed';
                                                 ?>
-                                                <span class="badge <?php echo $class; ?>">
+                                                <span class="badge <?php echo $class; ?>" style="font-size: 1em;">
                                                     <?php echo htmlspecialchars($result['determination']); ?>
                                                 </span>
                                             </td>
-                                            <td class="text-success">$<?php echo number_format($result['capex_total'], 2); ?></td>
+                                            <td class="text-success" style="font-weight: bold; font-size: 1.1em;">$<?php echo number_format($result['capex_total'], 2); ?></td>
                                             <td class="text-danger">$<?php echo number_format($result['opex_total'], 2); ?></td>
-                                            <td><small><?php echo htmlspecialchars(substr($result['justification'], 0, 150)); ?>...</small></td>
+                                            <td>
+                                                <div style="max-height: 100px; overflow-y: auto;">
+                                                    <?php echo htmlspecialchars($result['justification']); ?>
+                                                </div>
+                                            </td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
