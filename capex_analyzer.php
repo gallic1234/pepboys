@@ -143,28 +143,50 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
         return false;
     }
 
+    // Save headers globally for debugging
+    $GLOBALS['headers'] = $headers;
+
     // Find important column indices
     $columnMap = [];
     echo '<script>console.log("CSV Headers:", ' . json_encode($headers) . ');</script>';
     foreach ($headers as $index => $header) {
         $headerLower = strtolower(trim($header));
-        if (strpos($headerLower, 'work order') !== false || $index === 0) {
+
+        // Work order is always first column
+        if ($index === 0) {
             $columnMap['work_order'] = $index;
         }
-        if (strpos($headerLower, 'ifm invoice description') !== false || strpos($headerLower, 'description') !== false) {
+
+        // Look for description column
+        if (strpos($headerLower, 'ifm invoice description') !== false ||
+            (strpos($headerLower, 'description') !== false && strpos($headerLower, 'pepboys') === false)) {
             $columnMap['description'] = $index;
         }
-        if (strpos($headerLower, 'unit cost') !== false || strpos($headerLower, 'unit price') !== false || strpos($headerLower, 'cost') !== false) {
+
+        // Look for individual line item costs
+        if ((strpos($headerLower, 'unit') !== false && strpos($headerLower, 'cost') !== false) ||
+            (strpos($headerLower, 'unit') !== false && strpos($headerLower, 'price') !== false)) {
             $columnMap['unit_cost'] = $index;
         }
+
         if (strpos($headerLower, 'quantity') !== false || strpos($headerLower, 'qty') !== false) {
             $columnMap['quantity'] = $index;
         }
-        if (strpos($headerLower, 'line item cost') !== false || strpos($headerLower, 'line cost') !== false || strpos($headerLower, 'extended') !== false || strpos($headerLower, 'total') !== false) {
+
+        if ((strpos($headerLower, 'line') !== false && strpos($headerLower, 'cost') !== false) ||
+            (strpos($headerLower, 'extended') !== false && strpos($headerLower, 'pepboys') === false)) {
             $columnMap['line_cost'] = $index;
         }
-        if (strpos($headerLower, 'tax') !== false) {
-            $columnMap['total_tax'] = $index;
+
+        // PepBoys specific totals (these are work order totals, not line items)
+        if (strpos($headerLower, 'pepboys') !== false && strpos($headerLower, 'tax') !== false) {
+            $columnMap['pepboys_tax'] = $index;
+        }
+        if (strpos($headerLower, 'pepboys') !== false && strpos($headerLower, 'subtotal') !== false) {
+            $columnMap['pepboys_subtotal'] = $index;
+        }
+        if (strpos($headerLower, 'pepboys') !== false && strpos($headerLower, 'client') !== false && strpos($headerLower, 'invoice') !== false) {
+            $columnMap['pepboys_invoice'] = $index;
         }
     }
     echo '<script>console.log("Column mapping:", ' . json_encode($columnMap) . ');</script>';
@@ -298,75 +320,123 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey) {
     $totalCost = 0;
     $totalTax = 0;
     $lineItems = [];
+    $pepboysSubtotal = 0;
+    $pepboysTax = 0;
+    $pepboysInvoice = 0;
 
     // Debug first row to see what data we have
     if (count($rows) > 0) {
-        echo '<script>console.log("First row data for WO:", ' . json_encode($rows[0]) . ');</script>';
+        echo '<script>console.log("Analyzing WO with ' . count($rows) . ' rows. First row:", ' . json_encode($rows[0]) . ');</script>';
+
+        // Get PepBoys totals from first row (they're the same for all rows in a work order)
+        if (isset($columnMap['pepboys_subtotal'])) {
+            $pepboysSubtotal = floatval(str_replace(['$', ','], '', $rows[0][$columnMap['pepboys_subtotal']]));
+            echo '<script>console.log("PepBoys Subtotal: $' . number_format($pepboysSubtotal, 2) . '");</script>';
+        }
+        if (isset($columnMap['pepboys_tax'])) {
+            $pepboysTax = floatval(str_replace(['$', ','], '', $rows[0][$columnMap['pepboys_tax']]));
+            echo '<script>console.log("PepBoys Tax: $' . number_format($pepboysTax, 2) . '");</script>';
+        }
+        if (isset($columnMap['pepboys_invoice'])) {
+            $pepboysInvoice = floatval(str_replace(['$', ','], '', $rows[0][$columnMap['pepboys_invoice']]));
+            echo '<script>console.log("PepBoys Invoice Total: $' . number_format($pepboysInvoice, 2) . '");</script>';
+        }
     }
 
     foreach ($rows as $rowIndex => $row) {
-        // Try multiple ways to find description
+        // Get description from the correct column
         $description = '';
         if (isset($columnMap['description'])) {
-            $description = $row[$columnMap['description']] ?? '';
+            $description = trim($row[$columnMap['description']] ?? '');
         }
-        // If no description column found, try to find it in any column with text
+
+        // If no description column found, look for descriptive text in other columns
         if (empty($description)) {
-            foreach ($row as $idx => $cell) {
-                if (strlen($cell) > 20 && !is_numeric(str_replace(['$', ',', '.'], '', $cell))) {
+            // Skip first column (work order) and PepBoys columns
+            for ($idx = 1; $idx < count($row); $idx++) {
+                $cell = trim($row[$idx]);
+                // Look for text that's likely a description (not a number or short code)
+                if (strlen($cell) > 15 &&
+                    !is_numeric(str_replace(['$', ',', '.', ' '], '', $cell)) &&
+                    strpos(strtolower($headers[$idx]), 'pepboys') === false) {
                     $description = $cell;
+                    if ($rowIndex == 0) {
+                        echo '<script>console.log("Found description in column ' . $idx . ' (' . $headers[$idx] . '): ' . substr($cell, 0, 50) . '...");</script>';
+                    }
                     break;
                 }
             }
         }
 
-        $unitCost = isset($columnMap['unit_cost']) ? floatval(str_replace(['$', ','], '', $row[$columnMap['unit_cost']])) : 0;
-        $quantity = isset($columnMap['quantity']) ? floatval($row[$columnMap['quantity']]) : 1;
-        $lineCost = isset($columnMap['line_cost']) ? floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']])) : ($unitCost * $quantity);
+        // Get individual line item costs
+        $unitCost = 0;
+        $quantity = 1;
+        $lineCost = 0;
 
-        // If no cost found, try to find numeric values in the row
-        if ($lineCost == 0) {
-            foreach ($row as $idx => $cell) {
-                $cleanValue = str_replace(['$', ','], '', $cell);
-                if (is_numeric($cleanValue) && floatval($cleanValue) > 0 && floatval($cleanValue) < 100000) {
-                    $lineCost = floatval($cleanValue);
-                    break;
-                }
-            }
+        if (isset($columnMap['unit_cost'])) {
+            $unitCost = floatval(str_replace(['$', ','], '', $row[$columnMap['unit_cost']]));
+        }
+        if (isset($columnMap['quantity']) && !empty($row[$columnMap['quantity']])) {
+            $quantity = floatval($row[$columnMap['quantity']]);
+        }
+        if (isset($columnMap['line_cost'])) {
+            $lineCost = floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']]));
+        } else if ($unitCost > 0) {
+            $lineCost = $unitCost * $quantity;
         }
 
-        if (!empty(trim($description))) {
-            $descriptions[] = trim($description);
+        // Add to line items if we have a description
+        if (!empty($description)) {
+            $descriptions[] = $description;
             $lineItems[] = [
-                'description' => trim($description),
+                'description' => $description,
                 'cost' => $lineCost
             ];
-            $totalCost += $lineCost;
 
             if ($rowIndex == 0) {
-                echo '<script>console.log("First line item: ", ' . json_encode(['description' => trim($description), 'cost' => $lineCost]) . ');</script>';
+                echo '<script>console.log("Line item #1: ' . addslashes(substr($description, 0, 50)) . '... Cost: $' . number_format($lineCost, 2) . '");</script>';
             }
         }
+    }
 
-        // Get tax (usually same for all rows in a work order)
-        if (isset($columnMap['total_tax']) && $totalTax == 0) {
-            $totalTax = floatval(str_replace(['$', ','], '', $row[$columnMap['total_tax']]));
+    // Use PepBoys totals if available, otherwise sum line items
+    if ($pepboysSubtotal > 0) {
+        $totalCost = $pepboysSubtotal;
+        $totalTax = $pepboysTax;
+        echo '<script>console.log("Using PepBoys totals - Subtotal: $' . number_format($totalCost, 2) . ', Tax: $' . number_format($totalTax, 2) . '");</script>';
+    } else {
+        // Calculate from line items
+        foreach ($lineItems as $item) {
+            $totalCost += $item['cost'];
         }
+        echo '<script>console.log("Calculated from line items - Total: $' . number_format($totalCost, 2) . '");</script>';
     }
 
     if (empty($descriptions)) {
         echo '<script>console.error("No descriptions found in work order. Column map: ", ' . json_encode($columnMap) . ');</script>';
+        echo '<script>console.error("Headers: ", ' . json_encode($GLOBALS['headers'] ?? []) . ');</script>';
         echo '<script>console.error("First row was: ", ' . json_encode(isset($rows[0]) ? $rows[0] : 'No rows') . ');</script>';
-        return [
-            'determination' => 'ERROR',
-            'capex_amount' => 0,
-            'opex_amount' => 0,
-            'capex_tax' => 0,
-            'opex_tax' => 0,
-            'total_capex' => 0,
-            'total_opex' => 0,
-            'justification' => 'No descriptions found in work order - check CSV column headers'
-        ];
+
+        // If we have totals but no descriptions, create a generic entry
+        if ($pepboysSubtotal > 0 || $totalCost > 0) {
+            $descriptions[] = 'Work order items (descriptions not found in CSV)';
+            $lineItems[] = [
+                'description' => 'Work order total',
+                'cost' => $pepboysSubtotal > 0 ? $pepboysSubtotal : $totalCost
+            ];
+            echo '<script>console.log("Using work order totals despite missing descriptions");</script>';
+        } else {
+            return [
+                'determination' => 'ERROR',
+                'capex_amount' => 0,
+                'opex_amount' => 0,
+                'capex_tax' => 0,
+                'opex_tax' => 0,
+                'total_capex' => 0,
+                'total_opex' => 0,
+                'justification' => 'No descriptions or costs found - please check CSV format'
+            ];
+        }
     }
 
     // Prepare data for AI analysis
