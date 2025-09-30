@@ -2,7 +2,8 @@
 session_start();
 require_once 'config.php';
 
-$apiKey = defined('GEMINI_API_KEY') ? GEMINI_API_KEY : getenv('GEMINI_API_KEY');
+$geminiApiKey = defined('GEMINI_API_KEY') ? GEMINI_API_KEY : getenv('GEMINI_API_KEY');
+$grokApiKey = defined('GROK_API_KEY') ? GROK_API_KEY : getenv('GROK_API_KEY');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     // Disable output buffering for real-time updates
@@ -80,7 +81,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     $outputFile = sys_get_temp_dir() . '/capex_analysis_' . uniqid() . '.csv';
 
     // Process CSV with real-time updates
-    processCSVRealtime($tempFile, $outputFile, $apiKey);
+    processCSVRealtime($tempFile, $outputFile, $geminiApiKey, $grokApiKey);
 
     $_SESSION['results_file'] = $outputFile;
     $_SESSION['original_filename'] = pathinfo($uploadedFile['name'], PATHINFO_FILENAME);
@@ -116,7 +117,7 @@ if (isset($_GET['download']) && isset($_SESSION['results_file'])) {
     }
 }
 
-function processCSVRealtime($inputFile, $outputFile, $apiKey) {
+function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey) {
     $input = fopen($inputFile, 'r');
     $output = fopen($outputFile, 'w');
 
@@ -198,7 +199,7 @@ function processCSVRealtime($inputFile, $outputFile, $apiKey) {
               </div>';
         flush();
 
-        $analysis = analyzeWithGemini($description, $apiKey);
+        $analysis = analyzeWithAI($description, $geminiApiKey, $grokApiKey);
 
         $row[] = $analysis['determination'];
         $row[] = $analysis['justification'];
@@ -245,7 +246,7 @@ function processCSVRealtime($inputFile, $outputFile, $apiKey) {
     return true;
 }
 
-function processCSV($inputFile, $outputFile, $apiKey) {
+function processCSV($inputFile, $outputFile, $geminiApiKey, $grokApiKey) {
     $input = fopen($inputFile, 'r');
     $output = fopen($outputFile, 'w');
 
@@ -285,7 +286,7 @@ function processCSV($inputFile, $outputFile, $apiKey) {
             continue;
         }
 
-        $analysis = analyzeWithGemini($description, $apiKey);
+        $analysis = analyzeWithAI($description, $geminiApiKey, $grokApiKey);
 
         $row[] = $analysis['determination'];
         $row[] = $analysis['justification'];
@@ -306,6 +307,32 @@ function processCSV($inputFile, $outputFile, $apiKey) {
     fclose($output);
 
     return true;
+}
+
+function analyzeWithAI($description, $geminiApiKey, $grokApiKey) {
+    // Try Gemini first
+    if (!empty($geminiApiKey)) {
+        $result = analyzeWithGemini($description, $geminiApiKey);
+        if ($result['determination'] !== 'ERROR') {
+            return $result;
+        }
+        error_log("Gemini API failed, falling back to Grok: " . $result['justification']);
+    }
+
+    // Fallback to Grok
+    if (!empty($grokApiKey)) {
+        $result = analyzeWithGrok($description, $grokApiKey);
+        if ($result['determination'] !== 'ERROR') {
+            return $result;
+        }
+        error_log("Grok API also failed: " . $result['justification']);
+    }
+
+    // Both failed
+    return [
+        'determination' => 'ERROR',
+        'justification' => 'All AI models failed to process the request'
+    ];
 }
 
 function analyzeWithGemini($description, $apiKey) {
@@ -364,7 +391,7 @@ Speed of analysis is important, analysis per request should not exceed 10 second
         ];
     }
 
-    $url = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' . $apiKey;
+    $url = 'https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=' . $apiKey;
 
     $ch = curl_init($url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
