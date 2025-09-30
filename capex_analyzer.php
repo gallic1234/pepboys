@@ -22,7 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
         <style>
             .processing-container {
                 padding: 2rem;
-                max-width: 1200px;
+                max-width: 1400px;
                 margin: 0 auto;
             }
             .progress-info {
@@ -32,21 +32,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
                 margin-bottom: 1rem;
             }
             .row-result {
-                padding: 0.5rem;
-                margin: 0.25rem 0;
-                border-left: 3px solid #dee2e6;
+                padding: 0.75rem;
+                margin: 0.5rem 0;
+                border-left: 4px solid #dee2e6;
                 background: white;
+                border-radius: 5px;
             }
             .row-result.success { border-left-color: #28a745; }
             .row-result.error { border-left-color: #dc3545; }
             .row-result.pending { border-left-color: #ffc107; }
+            .row-result.mixed { border-left-color: #17a2b8; }
             .results-container {
-                max-height: 500px;
+                max-height: 600px;
                 overflow-y: auto;
                 border: 1px solid #dee2e6;
                 border-radius: 5px;
                 padding: 1rem;
                 background: #ffffff;
+            }
+            .cost-breakdown {
+                display: inline-block;
+                margin-left: 1rem;
+                font-size: 0.9rem;
+            }
+            .cost-breakdown span {
+                margin: 0 0.5rem;
             }
         </style>
     </head>
@@ -126,113 +136,143 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
         return false;
     }
 
+    // Read and process headers
     $headers = fgetcsv($input);
     if (!$headers) {
         echo '<div class="alert alert-danger">Empty CSV file</div>';
         return false;
     }
 
-    $newHeaders = array_merge($headers, ['CAPEX Determination', 'Justification']);
+    // Find important column indices
+    $columnMap = [];
+    foreach ($headers as $index => $header) {
+        $headerLower = strtolower(trim($header));
+        if (strpos($headerLower, 'work order') !== false || $index === 0) {
+            $columnMap['work_order'] = $index;
+        }
+        if (strpos($headerLower, 'ifm invoice description') !== false || strpos($headerLower, 'description') !== false) {
+            $columnMap['description'] = $index;
+        }
+        if (strpos($headerLower, 'unit cost') !== false || strpos($headerLower, 'unit price') !== false) {
+            $columnMap['unit_cost'] = $index;
+        }
+        if (strpos($headerLower, 'quantity') !== false || strpos($headerLower, 'qty') !== false) {
+            $columnMap['quantity'] = $index;
+        }
+        if (strpos($headerLower, 'line item cost') !== false || strpos($headerLower, 'line cost') !== false || strpos($headerLower, 'extended') !== false) {
+            $columnMap['line_cost'] = $index;
+        }
+        if (strpos($headerLower, 'tax') !== false && strpos($headerLower, 'total') !== false) {
+            $columnMap['total_tax'] = $index;
+        }
+    }
+
+    // Add new columns to headers
+    $newHeaders = array_merge($headers, [
+        'CAPEX/OPEX Determination',
+        'CAPEX Amount',
+        'OPEX Amount',
+        'CAPEX Tax Allocation',
+        'OPEX Tax Allocation',
+        'Total CAPEX',
+        'Total OPEX',
+        'Justification'
+    ]);
     fputcsv($output, $newHeaders);
 
-    // Count total rows for progress
-    $totalRows = 0;
-    while (fgetcsv($input) !== false) {
-        $totalRows++;
+    // Read all data and group by work order
+    $workOrders = [];
+    while (($row = fgetcsv($input)) !== false) {
+        if (count($row) < count($headers)) {
+            continue;
+        }
+
+        $workOrderNum = isset($columnMap['work_order']) ? trim($row[$columnMap['work_order']]) : trim($row[0]);
+        if (empty($workOrderNum)) {
+            continue;
+        }
+
+        if (!isset($workOrders[$workOrderNum])) {
+            $workOrders[$workOrderNum] = [];
+        }
+        $workOrders[$workOrderNum][] = $row;
     }
-    rewind($input);
-    fgetcsv($input); // Skip headers again
 
     $_SESSION['processed_rows'] = [];
-    $rowNumber = 0;
     $processedCount = 0;
+    $totalWorkOrders = count($workOrders);
 
-    echo '<script>document.getElementById("statusText").innerHTML = "Processing ' . $totalRows . ' rows...";</script>';
+    echo '<script>document.getElementById("statusText").innerHTML = "Processing ' . $totalWorkOrders . ' work orders...";</script>';
     flush();
 
-    while (($row = fgetcsv($input)) !== false) {
-        $rowNumber++;
+    foreach ($workOrders as $workOrderNum => $rows) {
         $processedCount++;
-        $progress = round(($processedCount / $totalRows) * 100);
-
-        // Get work order number from first column (index 0)
-        $workOrderNumber = isset($row[0]) ? trim($row[0]) : 'Row ' . $rowNumber;
+        $progress = round(($processedCount / $totalWorkOrders) * 100);
 
         echo '<script>
             document.getElementById("progressBar").style.width = "' . $progress . '%";
-            document.getElementById("statusText").innerHTML = "Processing work order ' . $processedCount . ' of ' . $totalRows . '...";
+            document.getElementById("statusText").innerHTML = "Processing work order ' . $processedCount . ' of ' . $totalWorkOrders . '...";
         </script>';
         flush();
 
-        if (count($row) < 4) {
-            $row[] = 'N/A';
-            $row[] = 'Insufficient data - row has less than 4 columns';
-            fputcsv($output, $row);
-
-            echo '<div class="row-result error">
-                    <strong>WO# ' . htmlspecialchars($workOrderNumber) . ':</strong>
-                    <span class="badge bg-warning text-dark">SKIPPED</span> - Insufficient columns
-                  </div>';
-            flush();
-            continue;
-        }
-
-        $description = $row[3];
-
-        if (empty(trim($description))) {
-            $row[] = 'N/A';
-            $row[] = 'No description provided';
-            fputcsv($output, $row);
-
-            echo '<div class="row-result error">
-                    <strong>WO# ' . htmlspecialchars($workOrderNumber) . ':</strong>
-                    <span class="badge bg-warning text-dark">SKIPPED</span> - No description
-                  </div>';
-            flush();
-            continue;
-        }
-
-        // Show what we're analyzing
-        echo '<div class="row-result pending" id="row-' . $rowNumber . '">
-                <strong>WO# ' . htmlspecialchars($workOrderNumber) . ':</strong>
-                <span class="text-muted">Analyzing: ' . htmlspecialchars(substr($description, 0, 100)) . '...</span>
+        echo '<div class="row-result pending" id="wo-' . htmlspecialchars($workOrderNum) . '">
+                <strong>WO# ' . htmlspecialchars($workOrderNum) . ':</strong>
+                <span class="text-muted">Analyzing ' . count($rows) . ' line items...</span>
               </div>';
         flush();
 
-        $analysis = analyzeWithAI($description, $geminiApiKey, $grokApiKey);
+        // Analyze the work order
+        $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey);
 
-        $row[] = $analysis['determination'];
-        $row[] = $analysis['justification'];
+        // Write cumulative row for this work order
+        $outputRow = $rows[0]; // Start with first row's data
 
-        fputcsv($output, $row);
+        // Add analysis results
+        $outputRow = array_pad($outputRow, count($headers), '');
+        $outputRow[] = $analysis['determination'];
+        $outputRow[] = number_format($analysis['capex_amount'], 2);
+        $outputRow[] = number_format($analysis['opex_amount'], 2);
+        $outputRow[] = number_format($analysis['capex_tax'], 2);
+        $outputRow[] = number_format($analysis['opex_tax'], 2);
+        $outputRow[] = number_format($analysis['total_capex'], 2);
+        $outputRow[] = number_format($analysis['total_opex'], 2);
+        $outputRow[] = $analysis['justification'];
 
-        // Update the row with results
+        fputcsv($output, $outputRow);
+
+        // Update display
         $badgeClass = 'bg-secondary';
         $borderClass = 'error';
-        if ($analysis['determination'] === 'YES') {
+        if ($analysis['determination'] === 'CAPEX') {
             $badgeClass = 'bg-success';
             $borderClass = 'success';
-        } elseif ($analysis['determination'] === 'NO') {
+        } elseif ($analysis['determination'] === 'OPEX') {
             $badgeClass = 'bg-danger';
-            $borderClass = 'success';
-        } elseif ($analysis['determination'] === 'ERROR') {
-            $badgeClass = 'bg-warning text-dark';
             $borderClass = 'error';
+        } elseif ($analysis['determination'] === 'MIXED') {
+            $badgeClass = 'bg-info';
+            $borderClass = 'mixed';
         }
 
         echo '<script>
-            document.getElementById("row-' . $rowNumber . '").className = "row-result ' . $borderClass . '";
-            document.getElementById("row-' . $rowNumber . '").innerHTML =
-                "<strong>WO# ' . htmlspecialchars(addslashes($workOrderNumber)) . ':</strong> " +
-                "<span class=\"badge ' . $badgeClass . '\">CAPEX: ' . $analysis['determination'] . '</span> - " +
-                "<small>' . htmlspecialchars(addslashes($analysis['justification'])) . '</small>";
+            document.getElementById("wo-' . htmlspecialchars($workOrderNum) . '").className = "row-result ' . $borderClass . '";
+            document.getElementById("wo-' . htmlspecialchars($workOrderNum) . '").innerHTML =
+                "<strong>WO# ' . htmlspecialchars(addslashes($workOrderNum)) . ':</strong> " +
+                "<span class=\"badge ' . $badgeClass . '\">' . $analysis['determination'] . '</span>" +
+                "<div class=\"cost-breakdown\">" +
+                "<span class=\"text-success\">CAPEX: $' . number_format($analysis['total_capex'], 2) . '</span>" +
+                "<span class=\"text-danger\">OPEX: $' . number_format($analysis['total_opex'], 2) . '</span>" +
+                "</div>" +
+                "<br><small>' . htmlspecialchars(addslashes(substr($analysis['justification'], 0, 200))) . '...</small>";
         </script>';
         flush();
 
         $_SESSION['processed_rows'][] = [
-            'work_order' => $workOrderNumber,
-            'description' => substr($description, 0, 100),
+            'work_order' => $workOrderNum,
+            'line_items' => count($rows),
             'determination' => $analysis['determination'],
+            'capex_total' => $analysis['total_capex'],
+            'opex_total' => $analysis['total_opex'],
             'justification' => $analysis['justification']
         ];
 
@@ -246,73 +286,123 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
     return true;
 }
 
-function processCSV($inputFile, $outputFile, $geminiApiKey, $grokApiKey) {
-    $input = fopen($inputFile, 'r');
-    $output = fopen($outputFile, 'w');
+function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey) {
+    // Collect all descriptions and costs
+    $descriptions = [];
+    $totalCost = 0;
+    $totalTax = 0;
+    $lineItems = [];
 
-    if (!$input || !$output) {
-        $_SESSION['error'] = 'Failed to process files';
-        return false;
-    }
+    foreach ($rows as $row) {
+        $description = isset($columnMap['description']) ? $row[$columnMap['description']] : '';
+        $unitCost = isset($columnMap['unit_cost']) ? floatval(str_replace(['$', ','], '', $row[$columnMap['unit_cost']])) : 0;
+        $quantity = isset($columnMap['quantity']) ? floatval($row[$columnMap['quantity']]) : 1;
+        $lineCost = isset($columnMap['line_cost']) ? floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']])) : ($unitCost * $quantity);
 
-    $headers = fgetcsv($input);
-    if (!$headers) {
-        $_SESSION['error'] = 'Empty CSV file';
-        return false;
-    }
-
-    $newHeaders = array_merge($headers, ['CAPEX Determination', 'Justification']);
-    fputcsv($output, $newHeaders);
-
-    $_SESSION['processed_rows'] = [];
-    $rowNumber = 0;
-
-    while (($row = fgetcsv($input)) !== false) {
-        $rowNumber++;
-
-        if (count($row) < 4) {
-            $row[] = 'N/A';
-            $row[] = 'Insufficient data - row has less than 4 columns';
-            fputcsv($output, $row);
-            continue;
+        if (!empty($description)) {
+            $descriptions[] = trim($description);
+            $lineItems[] = [
+                'description' => $description,
+                'cost' => $lineCost
+            ];
+            $totalCost += $lineCost;
         }
 
-        $description = $row[3];
-
-        if (empty(trim($description))) {
-            $row[] = 'N/A';
-            $row[] = 'No description provided';
-            fputcsv($output, $row);
-            continue;
+        // Get tax (usually same for all rows in a work order)
+        if (isset($columnMap['total_tax']) && $totalTax == 0) {
+            $totalTax = floatval(str_replace(['$', ','], '', $row[$columnMap['total_tax']]));
         }
+    }
 
-        $analysis = analyzeWithAI($description, $geminiApiKey, $grokApiKey);
-
-        $row[] = $analysis['determination'];
-        $row[] = $analysis['justification'];
-
-        fputcsv($output, $row);
-
-        $_SESSION['processed_rows'][] = [
-            'row' => $rowNumber,
-            'description' => substr($description, 0, 100),
-            'determination' => $analysis['determination'],
-            'justification' => $analysis['justification']
+    if (empty($descriptions)) {
+        return [
+            'determination' => 'ERROR',
+            'capex_amount' => 0,
+            'opex_amount' => 0,
+            'capex_tax' => 0,
+            'opex_tax' => 0,
+            'total_capex' => 0,
+            'total_opex' => 0,
+            'justification' => 'No descriptions found in work order'
         ];
-
-        usleep(500000);
     }
 
-    fclose($input);
-    fclose($output);
+    // Prepare data for AI analysis
+    $workOrderData = json_encode([
+        'descriptions' => $descriptions,
+        'line_items' => $lineItems,
+        'total_cost' => $totalCost,
+        'total_tax' => $totalTax
+    ]);
 
-    return true;
+    // Get AI analysis
+    $analysis = analyzeWithAI($workOrderData, $geminiApiKey, $grokApiKey);
+
+    // Parse the AI response to extract amounts
+    return parseAIResponse($analysis, $totalCost, $totalTax, $lineItems);
 }
 
-function analyzeWithAI($description, $geminiApiKey, $grokApiKey) {
+function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
+    // Default values
+    $result = [
+        'determination' => 'UNKNOWN',
+        'capex_amount' => 0,
+        'opex_amount' => 0,
+        'capex_tax' => 0,
+        'opex_tax' => 0,
+        'total_capex' => 0,
+        'total_opex' => 0,
+        'justification' => $analysis['justification']
+    ];
+
+    // Extract determination
+    if (preg_match('/DETERMINATION:\s*(CAPEX|OPEX|MIXED)/i', $analysis['justification'], $matches)) {
+        $result['determination'] = strtoupper($matches[1]);
+    }
+
+    // Extract amounts from AI response
+    if (preg_match('/CAPEX_AMOUNT:\s*\$?([\d,]+\.?\d*)/i', $analysis['justification'], $matches)) {
+        $result['capex_amount'] = floatval(str_replace(',', '', $matches[1]));
+    }
+    if (preg_match('/OPEX_AMOUNT:\s*\$?([\d,]+\.?\d*)/i', $analysis['justification'], $matches)) {
+        $result['opex_amount'] = floatval(str_replace(',', '', $matches[1]));
+    }
+
+    // If amounts weren't parsed, use simple allocation based on determination
+    if ($result['capex_amount'] == 0 && $result['opex_amount'] == 0) {
+        if ($result['determination'] === 'CAPEX') {
+            $result['capex_amount'] = $totalCost;
+            $result['opex_amount'] = 0;
+        } elseif ($result['determination'] === 'OPEX') {
+            $result['capex_amount'] = 0;
+            $result['opex_amount'] = $totalCost;
+        } else {
+            // Mixed - default to 50/50 if not specified
+            $result['capex_amount'] = $totalCost * 0.5;
+            $result['opex_amount'] = $totalCost * 0.5;
+        }
+    }
+
+    // Allocate tax proportionally
+    if ($totalCost > 0) {
+        $capexRatio = $result['capex_amount'] / $totalCost;
+        $opexRatio = $result['opex_amount'] / $totalCost;
+
+        $result['capex_tax'] = $totalTax * $capexRatio;
+        $result['opex_tax'] = $totalTax * $opexRatio;
+    }
+
+    // Calculate totals
+    $result['total_capex'] = $result['capex_amount'] + $result['capex_tax'];
+    $result['total_opex'] = $result['opex_amount'] + $result['opex_tax'];
+
+    return $result;
+}
+
+function analyzeWithAI($workOrderData, $geminiApiKey, $grokApiKey) {
     // Try Gemini first
     if (!empty($geminiApiKey)) {
-        $result = analyzeWithGemini($description, $geminiApiKey);
+        $result = analyzeWithGemini($workOrderData, $geminiApiKey);
         if ($result['determination'] !== 'ERROR') {
             return $result;
         }
@@ -321,7 +411,7 @@ function analyzeWithAI($description, $geminiApiKey, $grokApiKey) {
 
     // Fallback to Grok
     if (!empty($grokApiKey)) {
-        $result = analyzeWithGrok($description, $grokApiKey);
+        $result = analyzeWithGrok($workOrderData, $grokApiKey);
         if ($result['determination'] !== 'ERROR') {
             return $result;
         }
@@ -335,39 +425,48 @@ function analyzeWithAI($description, $geminiApiKey, $grokApiKey) {
     ];
 }
 
-function analyzeWithGemini($description, $apiKey) {
-    $description = str_replace(["\r", "\n", "\t"], ' ', $description);
-    $description = preg_replace('/\s+/', ' ', $description);
-    $description = trim($description);
-    $description = preg_replace('/[^\x20-\x7E]/', '', $description);
+function analyzeWithGemini($workOrderData, $apiKey) {
+    $workOrder = json_decode($workOrderData, true);
 
-    $prompt = "You are an expert accountant familiar with ASC 360 (Property, Plant, and Equipment) rules. And this analysis should be quick and not in depth.
+    $prompt = "You are a professional accountant with extensive experience in ASC 360 (Property, Plant, and Equipment) compliance and public entity financial reporting.
 
-Analyze the following expense description and determine if it qualifies as CAPEX (Capital Expenditure) under ASC 360 guidelines but use them understanding that nearly any repair will extend the life of the asset significantly.
+Analyze this work order with multiple line items and determine the CAPEX vs OPEX allocation:
 
-ASC 360 Key Criteria for CAPEX:
-1. The cost must provide future economic benefits beyond the current period (typically > 1 year) which includes changing compressors, electrical wiring and boards, anything that isn't recharging or cleaning.
-2. The amount must be material/significant over $500 but this should not be mentioned in the justification.
-3. It must either:
-   - Be a new asset acquisition
-   - Significantly extend the useful life of an existing asset
-   - Increase the capacity or efficiency of an existing asset
-   - Improve the quality of output from an existing asset including safety and environmental upgrades
+Line Items:
+" . implode("\n", array_map(function($item, $idx) {
+    return ($idx + 1) . ". " . $item['description'] . " - Cost: $" . number_format($item['cost'], 2);
+}, $workOrder['line_items'], array_keys($workOrder['line_items']))) . "
 
-Expenses that are typically OPEX (not CAPEX):
-- Routine maintenance. All repairs are CAPEX unless they are routine maintenance.
-- Costs that merely maintain an asset's existing condition which are typically below $1000.
-- Costs that restore an asset to its original operating efficiency including cleaning, repainting, or charing refrigerant.
+Total Cost: $" . number_format($workOrder['total_cost'], 2) . "
+Total Tax: $" . number_format($workOrder['total_tax'], 2) . "
 
-Description to analyze: " . $description . "
+ASC 360 CAPEX Criteria:
+- Replacement of major components (fan motors, compressors, switches, control boards, entire units)
+- Significant repairs that extend asset life beyond one year
+- Upgrades that increase capacity, efficiency, or quality of output
+- Safety and environmental improvements
+- Generally involves material costs over $500
 
-Please respond in the following format:
-DETERMINATION: [YES/NO]
-JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria in 1-2 sentences]
+OPEX Criteria:
+- Routine maintenance (tape, filters, belts, cleaning)
+- Minor repairs (leak repairs, recharging refrigerant)
+- Inspections and evaluations
+- Items that merely maintain existing condition
+- Consumable supplies
 
-Speed of analysis is important, analysis per request should not exceed 10 seconds.";
+Specific Guidelines:
+- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = OPEX
+- Fan motors, switches, replacement units, major repairs = CAPEX
+- Labor follows the same classification as the materials it's associated with
+- Tax should be allocated proportionally between CAPEX and OPEX
 
-    $data = [ 
+Please analyze each line item and respond in this format:
+DETERMINATION: [CAPEX/OPEX/MIXED]
+CAPEX_AMOUNT: [dollar amount without tax]
+OPEX_AMOUNT: [dollar amount without tax]
+JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria. For MIXED classifications, specify which items are CAPEX and which are OPEX]";
+
+    $data = [
         'contents' => [
             [
                 'parts' => [
@@ -376,8 +475,8 @@ Speed of analysis is important, analysis per request should not exceed 10 second
             ]
         ],
         'generationConfig' => [
-            'temperature' => 0.7,
-            'maxOutputTokens' => 500
+            'temperature' => 0.3,
+            'maxOutputTokens' => 800
         ]
     ];
 
@@ -417,7 +516,6 @@ Speed of analysis is important, analysis per request should not exceed 10 second
             if (isset($errorData['error']['message'])) {
                 $errorMsg .= " - " . $errorData['error']['message'];
             }
-            echo "<script>console.error('Gemini API Error:', " . json_encode($errorData) . ");</script>";
             error_log("Gemini API Error: " . json_encode($errorData));
         }
         return [
@@ -437,79 +535,66 @@ Speed of analysis is important, analysis per request should not exceed 10 second
 
     $content = $responseData['candidates'][0]['content']['parts'][0]['text'];
 
-    $determination = 'UNKNOWN';
-    $justification = $content;
-
-    if (preg_match('/DETERMINATION:\s*(YES|NO)/i', $content, $matches)) {
-        $determination = strtoupper($matches[1]);
-    }
-
-    if (preg_match('/JUSTIFICATION:\s*(.+)/is', $content, $matches)) {
-        $justification = trim($matches[1]);
-    }
-
     return [
-        'determination' => $determination,
-        'justification' => $justification
+        'determination' => 'UNKNOWN',
+        'justification' => $content
     ];
 }
 
-function analyzeWithGrok($description, $apiKey) {
-    // Clean and sanitize the description
-    $description = str_replace(["\r", "\n", "\t"], ' ', $description); // Remove line breaks and tabs
-    $description = preg_replace('/\s+/', ' ', $description); // Replace multiple spaces with single space
-    $description = trim($description);
+function analyzeWithGrok($workOrderData, $apiKey) {
+    $workOrder = json_decode($workOrderData, true);
 
-    // Remove non-ASCII characters and special quotes
-    $description = preg_replace('/[^\x20-\x7E]/', '', $description); // Remove non-printable characters
+    $prompt = "You are a professional accountant with extensive experience in ASC 360 (Property, Plant, and Equipment) compliance and public entity financial reporting.
 
-    // Escape for JSON after cleaning
-    $description = addslashes($description); // Properly escape for JSON
+Analyze this work order with multiple line items and determine the CAPEX vs OPEX allocation:
 
-    $prompt = "You are an expert accountant familiar with ASC 360 (Property, Plant, and Equipment) rules. And this analysis should be quick and not in depth.
+Line Items:
+" . implode("\n", array_map(function($item, $idx) {
+    return ($idx + 1) . ". " . $item['description'] . " - Cost: $" . number_format($item['cost'], 2);
+}, $workOrder['line_items'], array_keys($workOrder['line_items']))) . "
 
-Analyze the following expense description and determine if it qualifies as CAPEX (Capital Expenditure) under ASC 360 guidelines but use them understanding that nearly any repair will extend the life of the asset significantly.
+Total Cost: $" . number_format($workOrder['total_cost'], 2) . "
+Total Tax: $" . number_format($workOrder['total_tax'], 2) . "
 
-ASC 360 Key Criteria for CAPEX:
-1. The cost must provide future economic benefits beyond the current period (typically > 1 year) which includes changing compressors, electrical wiring and boards, anything that isn't recharging or cleaning.
-2. The amount must be material/significant over $500 but this should not be mentioned in the justification.
-3. It must either:
-   - Be a new asset acquisition
-   - Significantly extend the useful life of an existing asset
-   - Increase the capacity or efficiency of an existing asset
-   - Improve the quality of output from an existing asset including safety and environmental upgrades
+ASC 360 CAPEX Criteria:
+- Replacement of major components (fan motors, compressors, switches, control boards, entire units)
+- Significant repairs that extend asset life beyond one year
+- Upgrades that increase capacity, efficiency, or quality of output
+- Safety and environmental improvements
+- Generally involves material costs over $500
 
-Expenses that are typically OPEX (not CAPEX):
-- Routine maintenance. All repairs are CAPEX unless they are routine maintenance.
-- Costs that merely maintain an asset's existing condition which are typically below $1000.
-- Costs that restore an asset to its original operating efficiency including cleaning, repainting, or charing refrigerant.
+OPEX Criteria:
+- Routine maintenance (tape, filters, belts, cleaning)
+- Minor repairs (leak repairs, recharging refrigerant)
+- Inspections and evaluations
+- Items that merely maintain existing condition
+- Consumable supplies
 
-Description to analyze: " . $description . "
+Specific Guidelines:
+- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = OPEX
+- Fan motors, switches, replacement units, major repairs = CAPEX
+- Labor follows the same classification as the materials it's associated with
+- Tax should be allocated proportionally between CAPEX and OPEX
 
-Please respond in the following format:
-DETERMINATION: [YES/NO]
-JUSTIFICATION: [Provide a clear, concise explanation based on ASC 360 criteria in 1-2 sentences]
-
-Speed of analysis is important, analysis per request should not exceed 10 seconds.";
+Please analyze each line item and respond in this format:
+DETERMINATION: [CAPEX/OPEX/MIXED]
+CAPEX_AMOUNT: [dollar amount without tax]
+OPEX_AMOUNT: [dollar amount without tax]
+JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria. For MIXED classifications, specify which items are CAPEX and which are OPEX]";
 
     $data = [
-        'model' => 'grok-4-fast-non-reasoning',
+        'model' => 'grok-beta',
         'messages' => [
             [
                 'role' => 'user',
                 'content' => $prompt
             ]
         ],
-        'temperature' => 0.7
+        'temperature' => 0.3
     ];
 
-    // Debug: Log the request data
-    error_log("Grok API Request: " . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-
-    // Ensure proper JSON encoding with all necessary flags
     $jsonPayload = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
 
-    // Additional check for JSON encoding errors
     if (json_last_error() !== JSON_ERROR_NONE) {
         error_log("JSON Encoding Error: " . json_last_error_msg());
         return [
@@ -543,8 +628,6 @@ Speed of analysis is important, analysis per request should not exceed 10 second
             if (isset($errorData['error']['message'])) {
                 $errorMsg .= " - " . $errorData['error']['message'];
             }
-            // Output to browser console for debugging
-            echo "<script>console.error('API Error Details:', " . json_encode($errorData) . ");</script>";
             error_log("Grok API Error: " . json_encode($errorData));
         }
         return [
@@ -564,20 +647,9 @@ Speed of analysis is important, analysis per request should not exceed 10 second
 
     $content = $responseData['choices'][0]['message']['content'];
 
-    $determination = 'UNKNOWN';
-    $justification = $content;
-
-    if (preg_match('/DETERMINATION:\s*(YES|NO)/i', $content, $matches)) {
-        $determination = strtoupper($matches[1]);
-    }
-
-    if (preg_match('/JUSTIFICATION:\s*(.+)/is', $content, $matches)) {
-        $justification = trim($matches[1]);
-    }
-
     return [
-        'determination' => $determination,
-        'justification' => $justification
+        'determination' => 'UNKNOWN',
+        'justification' => $content
     ];
 }
 ?>
@@ -616,15 +688,41 @@ Speed of analysis is important, analysis per request should not exceed 10 second
             max-height: 500px;
             overflow-y: auto;
         }
-        .badge-yes {
+        .badge-capex {
             background-color: #28a745;
         }
-        .badge-no {
+        .badge-opex {
             background-color: #dc3545;
+        }
+        .badge-mixed {
+            background-color: #17a2b8;
         }
         .badge-error {
             background-color: #ffc107;
             color: #000;
+        }
+        .summary-card {
+            border-left: 4px solid #667eea;
+            margin-bottom: 1rem;
+        }
+        .summary-card .card-body {
+            padding: 1rem;
+        }
+        .cost-summary {
+            display: flex;
+            justify-content: space-around;
+            margin-top: 1rem;
+        }
+        .cost-item {
+            text-align: center;
+        }
+        .cost-item h4 {
+            margin-bottom: 0.5rem;
+            color: #495057;
+        }
+        .cost-item .amount {
+            font-size: 1.5rem;
+            font-weight: bold;
         }
     </style>
 </head>
@@ -632,8 +730,8 @@ Speed of analysis is important, analysis per request should not exceed 10 second
     <div class="hero-section">
         <div class="container">
             <h1 class="display-4 fw-bold">CAPEX Analyzer</h1>
-            <p class="lead">ASC 360 Compliance Analysis using AI</p>
-            <p>Upload your CSV file and get instant CAPEX/OPEX determinations based on ASC 360 accounting rules</p>
+            <p class="lead">Professional ASC 360 Compliance Analysis</p>
+            <p>Upload your CSV file for detailed CAPEX/OPEX determination with tax allocation</p>
         </div>
     </div>
 
@@ -650,7 +748,7 @@ Speed of analysis is important, analysis per request should not exceed 10 second
             <div class="card">
                 <div class="card-body">
                     <h5 class="card-title">Upload CSV File</h5>
-                    <p class="card-text">Select a CSV file with expense descriptions in the 4th column for analysis.</p>
+                    <p class="card-text">Select a CSV file with work orders and invoice descriptions for analysis.</p>
 
                     <form method="POST" enctype="multipart/form-data" id="uploadForm">
                         <div class="upload-area" onclick="document.getElementById('csvFile').click();">
@@ -661,7 +759,7 @@ Speed of analysis is important, analysis per request should not exceed 10 second
                             <p id="fileName" class="mt-2 text-primary"></p>
                         </div>
                         <button type="submit" class="btn btn-primary btn-lg mt-3 w-100" id="analyzeBtn">
-                            Analyze
+                            Analyze Work Orders
                         </button>
                     </form>
                 </div>
@@ -671,14 +769,19 @@ Speed of analysis is important, analysis per request should not exceed 10 second
                 <div class="card-body">
                     <h5 class="card-title">How it Works</h5>
                     <ol>
-                        <li>Upload a CSV file containing expense descriptions in the 4th column</li>
-                        <li>Each description is analyzed against ASC 360 criteria</li>
-                        <li>Get instant CAPEX/OPEX determinations with justifications</li>
-                        <li>Download the enhanced CSV with analysis results</li>
+                        <li>Upload a CSV file with work orders (first column) and IFM Invoice Descriptions</li>
+                        <li>System groups all rows with the same work order number</li>
+                        <li>AI analyzes each work order against ASC 360 criteria</li>
+                        <li>Receive detailed CAPEX/OPEX allocations with tax distribution</li>
+                        <li>Download enhanced CSV with cumulative results per work order</li>
                     </ol>
                     <div class="alert alert-info mt-3">
-                        <strong>ASC 360 Criteria:</strong> Costs that provide future economic benefits, extend asset life,
-                        or improve asset capacity/efficiency are typically classified as CAPEX.
+                        <strong>ASC 360 Professional Analysis:</strong>
+                        <ul class="mb-0 mt-2">
+                            <li><strong>CAPEX:</strong> Fan motors, switches, replacement units, major repairs extending life >1 year</li>
+                            <li><strong>OPEX:</strong> Tape, filters, recharge, inspections, leaks, evaluations, belts, routine maintenance</li>
+                            <li><strong>Tax Allocation:</strong> Proportionally distributed based on CAPEX/OPEX ratio</li>
+                        </ul>
                     </div>
                 </div>
             </div>
@@ -687,7 +790,7 @@ Speed of analysis is important, analysis per request should not exceed 10 second
             <div class="card">
                 <div class="card-body">
                     <h5 class="card-title">Analysis Complete!</h5>
-                    <p class="card-text">Your CSV file has been processed. Below are the results:</p>
+                    <p class="card-text">Your work orders have been analyzed and consolidated.</p>
 
                     <div class="d-grid gap-2 d-md-flex justify-content-md-start mb-4">
                         <a href="?download=1" class="btn btn-success">
@@ -701,33 +804,62 @@ Speed of analysis is important, analysis per request should not exceed 10 second
                     </div>
 
                     <?php if (isset($_SESSION['processed_rows']) && count($_SESSION['processed_rows']) > 0): ?>
-                        <h6>Processed Rows Summary:</h6>
+                        <?php
+                        $totalCapex = array_sum(array_column($_SESSION['processed_rows'], 'capex_total'));
+                        $totalOpex = array_sum(array_column($_SESSION['processed_rows'], 'opex_total'));
+                        ?>
+                        <div class="summary-card card">
+                            <div class="card-body">
+                                <h6>Summary Statistics</h6>
+                                <div class="cost-summary">
+                                    <div class="cost-item">
+                                        <h4>Total CAPEX</h4>
+                                        <div class="amount text-success">$<?php echo number_format($totalCapex, 2); ?></div>
+                                    </div>
+                                    <div class="cost-item">
+                                        <h4>Total OPEX</h4>
+                                        <div class="amount text-danger">$<?php echo number_format($totalOpex, 2); ?></div>
+                                    </div>
+                                    <div class="cost-item">
+                                        <h4>Work Orders</h4>
+                                        <div class="amount text-primary"><?php echo count($_SESSION['processed_rows']); ?></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <h6>Work Order Details:</h6>
                         <div class="results-table">
                             <table class="table table-striped table-hover">
                                 <thead class="sticky-top bg-white">
                                     <tr>
                                         <th>Work Order</th>
-                                        <th>Description</th>
-                                        <th>CAPEX?</th>
+                                        <th>Line Items</th>
+                                        <th>Classification</th>
+                                        <th>CAPEX Total</th>
+                                        <th>OPEX Total</th>
                                         <th>Justification</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php foreach ($_SESSION['processed_rows'] as $result): ?>
                                         <tr>
-                                            <td><?php echo htmlspecialchars($result['work_order'] ?? $result['row'] ?? 'N/A'); ?></td>
-                                            <td><?php echo htmlspecialchars($result['description']); ?>...</td>
+                                            <td><strong><?php echo htmlspecialchars($result['work_order']); ?></strong></td>
+                                            <td><?php echo $result['line_items']; ?></td>
                                             <td>
                                                 <?php
                                                 $class = 'badge-error';
-                                                if ($result['determination'] === 'YES') $class = 'badge-yes';
-                                                elseif ($result['determination'] === 'NO') $class = 'badge-no';
+                                                if ($result['determination'] === 'CAPEX') $class = 'badge-capex';
+                                                elseif ($result['determination'] === 'OPEX') $class = 'badge-opex';
+                                                elseif ($result['determination'] === 'MIXED') $class = 'badge-mixed';
                                                 ?>
                                                 <span class="badge <?php echo $class; ?>">
                                                     <?php echo htmlspecialchars($result['determination']); ?>
                                                 </span>
                                             </td>
-                                            <td><small><?php echo htmlspecialchars($result['justification']); ?></small></td>
+                                            <td class="text-success">$<?php echo number_format($result['capex_total'], 2); ?></td>
+                                            <td class="text-danger">$<?php echo number_format($result['opex_total'], 2); ?></td>
+                                            <td><small><?php echo htmlspecialchars(substr($result['justification'], 0, 150)); ?>...</small></td>
                                         </tr>
                                     <?php endforeach; ?>
                                 </tbody>
@@ -752,7 +884,7 @@ Speed of analysis is important, analysis per request should not exceed 10 second
 
         document.getElementById('uploadForm')?.addEventListener('submit', function(e) {
             const btn = document.getElementById('analyzeBtn');
-            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing...';
+            btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Processing Work Orders...';
             btn.disabled = true;
         });
 
