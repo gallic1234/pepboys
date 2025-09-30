@@ -4,6 +4,7 @@ require_once 'config.php';
 
 $geminiApiKey = defined('GEMINI_API_KEY') ? GEMINI_API_KEY : getenv('GEMINI_API_KEY');
 $grokApiKey = defined('GROK_API_KEY') ? GROK_API_KEY : getenv('GROK_API_KEY');
+$openaiApiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : getenv('OPENAI_API_KEY');
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     // Disable output buffering for real-time updates
@@ -97,7 +98,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     $outputFile = sys_get_temp_dir() . '/capex_analysis_' . uniqid() . '.csv';
 
     // Process CSV with real-time updates
-    processCSVRealtime($tempFile, $outputFile, $geminiApiKey, $grokApiKey);
+    processCSVRealtime($tempFile, $outputFile, $geminiApiKey, $grokApiKey, $openaiApiKey);
 
     $_SESSION['results_file'] = $outputFile;
     $_SESSION['original_filename'] = pathinfo($uploadedFile['name'], PATHINFO_FILENAME);
@@ -136,7 +137,7 @@ if (isset($_GET['download']) && isset($_SESSION['results_file'])) {
     }
 }
 
-function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey) {
+function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey, $openaiApiKey) {
     $input = fopen($inputFile, 'r');
     $output = fopen($outputFile, 'w');
 
@@ -210,7 +211,10 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
         'OPEX Tax Allocation',
         'Total CAPEX (incl. Tax)',
         'Total OPEX (incl. Tax)',
-        'Justification'
+        'Justification',
+        'Grok Response',
+        'Gemini Response',
+        'OpenAI Response'
     ]);
     fputcsv($output, $newHeaders);
 
@@ -247,7 +251,7 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
         // Don't show processing status - just process silently
 
         // Analyze the work order
-        $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey);
+        $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
 
         echo '<script>console.log("Analysis result for WO ' . htmlspecialchars($workOrderNum) . ':", ' . json_encode($analysis) . ');</script>';
         flush();
@@ -265,6 +269,9 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
         $outputRow[] = number_format($analysis['total_capex'], 2);
         $outputRow[] = number_format($analysis['total_opex'], 2);
         $outputRow[] = $analysis['justification'];
+        $outputRow[] = $analysis['grok_response'] ?? '';
+        $outputRow[] = $analysis['gemini_response'] ?? '';
+        $outputRow[] = $analysis['openai_response'] ?? '';
 
         fputcsv($output, $outputRow);
 
@@ -329,7 +336,7 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
     return true;
 }
 
-function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey) {
+function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey) {
     // Collect all descriptions and costs
     $descriptions = [];
     $totalCost = 0;
@@ -465,11 +472,11 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey) {
     echo '<script>console.log("Work order data prepared - Total cost: $' . number_format($totalCost, 2) . ', Items: ' . count($lineItems) . '");</script>';
     flush();
 
-    // Get AI analysis
-    $analysis = analyzeWithAI($workOrderData, $geminiApiKey, $grokApiKey);
+    // Get AI analysis from all three models
+    $allResponses = analyzeWithAllAIs($workOrderData, $geminiApiKey, $grokApiKey, $openaiApiKey);
 
-    // Parse the AI response to extract amounts
-    return parseAIResponse($analysis, $totalCost, $totalTax, $lineItems);
+    // Parse the AI responses and determine final allocation
+    return parseAllAIResponses($allResponses, $totalCost, $totalTax, $lineItems);
 }
 
 function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
@@ -555,6 +562,205 @@ function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
     echo '<script>console.log("Final totals with tax - CAPEX: $' . number_format($result['total_capex'], 2) . ', OPEX: $' . number_format($result['total_opex'], 2) . '");</script>';
 
     return $result;
+}
+
+function analyzeWithAllAIs($workOrderData, $geminiApiKey, $grokApiKey, $openaiApiKey) {
+    $responses = [
+        'grok' => null,
+        'gemini' => null,
+        'openai' => null,
+        'grok_raw' => '',
+        'gemini_raw' => '',
+        'openai_raw' => ''
+    ];
+
+    // Query Grok
+    if (!empty($grokApiKey)) {
+        echo '<script>console.log("Querying Grok API...");</script>';
+        $grokResult = analyzeWithGrok($workOrderData, $grokApiKey);
+        $responses['grok'] = $grokResult;
+        $responses['grok_raw'] = $grokResult['justification'] ?? '';
+    }
+
+    // Query Gemini
+    if (!empty($geminiApiKey)) {
+        echo '<script>console.log("Querying Gemini API...");</script>';
+        $geminiResult = analyzeWithGemini($workOrderData, $geminiApiKey);
+        $responses['gemini'] = $geminiResult;
+        $responses['gemini_raw'] = $geminiResult['justification'] ?? '';
+    }
+
+    // Query OpenAI
+    if (!empty($openaiApiKey)) {
+        echo '<script>console.log("Querying OpenAI API...");</script>';
+        $openaiResult = analyzeWithOpenAI($workOrderData, $openaiApiKey);
+        $responses['openai'] = $openaiResult;
+        $responses['openai_raw'] = $openaiResult['justification'] ?? '';
+    }
+
+    return $responses;
+}
+
+function parseAllAIResponses($allResponses, $totalCost, $totalTax, $lineItems) {
+    // Start with default values
+    $result = [
+        'determination' => 'UNKNOWN',
+        'capex_amount' => 0,
+        'opex_amount' => 0,
+        'capex_tax' => 0,
+        'opex_tax' => 0,
+        'total_capex' => 0,
+        'total_opex' => 0,
+        'justification' => '',
+        'grok_response' => $allResponses['grok_raw'],
+        'gemini_response' => $allResponses['gemini_raw'],
+        'openai_response' => $allResponses['openai_raw']
+    ];
+
+    // Try to use the first successful response for the main analysis
+    $primaryResponse = null;
+    if ($allResponses['grok'] && $allResponses['grok']['determination'] !== 'ERROR') {
+        $primaryResponse = $allResponses['grok'];
+        $result['justification'] = 'Grok: ' . $allResponses['grok_raw'];
+    } elseif ($allResponses['gemini'] && $allResponses['gemini']['determination'] !== 'ERROR') {
+        $primaryResponse = $allResponses['gemini'];
+        $result['justification'] = 'Gemini: ' . $allResponses['gemini_raw'];
+    } elseif ($allResponses['openai'] && $allResponses['openai']['determination'] !== 'ERROR') {
+        $primaryResponse = $allResponses['openai'];
+        $result['justification'] = 'OpenAI: ' . $allResponses['openai_raw'];
+    }
+
+    // If we have a primary response, parse it
+    if ($primaryResponse) {
+        $parsed = parseAIResponse($primaryResponse, $totalCost, $totalTax, $lineItems);
+        $result = array_merge($result, $parsed);
+
+        // Keep the individual responses
+        $result['grok_response'] = $allResponses['grok_raw'];
+        $result['gemini_response'] = $allResponses['gemini_raw'];
+        $result['openai_response'] = $allResponses['openai_raw'];
+    }
+
+    return $result;
+}
+
+function analyzeWithOpenAI($workOrderData, $apiKey) {
+    $workOrder = json_decode($workOrderData, true);
+
+    $prompt = "You are a professional accountant with extensive experience in ASC 360 (Property, Plant, and Equipment) compliance and public entity financial reporting.
+
+Analyze this work order with multiple line items and determine the CAPEX vs OPEX allocation:
+
+Line Items:
+" . implode("\n", array_map(function($item, $idx) {
+    return ($idx + 1) . ". " . $item['description'] . " - Cost: $" . number_format($item['cost'], 2);
+}, $workOrder['line_items'], array_keys($workOrder['line_items']))) . "
+
+Total Cost: $" . number_format($workOrder['total_cost'], 2) . "
+Total Tax: $" . number_format($workOrder['total_tax'], 2) . "
+
+ASC 360 CAPEX Criteria:
+- Replacement of major components (fan motors, compressors, switches, control boards, entire units)
+- Significant repairs that extend asset life beyond one year
+- Upgrades that increase capacity, efficiency, or quality of output
+- Safety and environmental improvements
+- Generally involves material costs over $500
+
+OPEX Criteria:
+- Routine maintenance (tape, filters, belts, cleaning)
+- Minor repairs (leak repairs, recharging refrigerant)
+- Inspections and evaluations
+- Items that merely maintain existing condition
+- Consumable supplies
+
+Specific Guidelines:
+- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = OPEX
+- Fan motors, switches, replacement units, major repairs = CAPEX
+- Labor follows the same classification as the materials it's associated with
+- Tax should be allocated proportionally between CAPEX and OPEX
+
+Please analyze each line item and respond in this format:
+DETERMINATION: [CAPEX/OPEX/MIXED]
+CAPEX_AMOUNT: [dollar amount without tax]
+OPEX_AMOUNT: [dollar amount without tax]
+JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria. For MIXED classifications, specify which items are CAPEX and which are OPEX]";
+
+    $data = [
+        'model' => 'gpt-4-turbo-preview',
+        'messages' => [
+            [
+                'role' => 'system',
+                'content' => 'You are a professional accountant expert in ASC 360 compliance.'
+            ],
+            [
+                'role' => 'user',
+                'content' => $prompt
+            ]
+        ],
+        'temperature' => 0.3,
+        'max_tokens' => 800
+    ];
+
+    $jsonPayload = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        error_log("JSON Encoding Error: " . json_last_error_msg());
+        return [
+            'determination' => 'ERROR',
+            'justification' => 'Failed to encode request data'
+        ];
+    }
+
+    $ch = curl_init('https://api.openai.com/v1/chat/completions');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json; charset=utf-8',
+        'Authorization: Bearer ' . $apiKey
+    ]);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($httpCode !== 200 || !$response) {
+        $errorMsg = "API Error (HTTP $httpCode)";
+        if ($curlError) {
+            $errorMsg .= " - CURL: $curlError";
+        }
+        if ($response) {
+            $errorData = json_decode($response, true);
+            if (isset($errorData['error']['message'])) {
+                $errorMsg .= " - " . $errorData['error']['message'];
+            }
+            error_log("OpenAI API Error: " . json_encode($errorData));
+        }
+        return [
+            'determination' => 'ERROR',
+            'justification' => $errorMsg
+        ];
+    }
+
+    $responseData = json_decode($response, true);
+
+    if (!isset($responseData['choices'][0]['message']['content'])) {
+        return [
+            'determination' => 'ERROR',
+            'justification' => 'Invalid API response'
+        ];
+    }
+
+    $content = $responseData['choices'][0]['message']['content'];
+
+    echo '<script>console.log("OpenAI response received:", ' . json_encode(substr($content, 0, 500)) . ');</script>';
+
+    return [
+        'determination' => 'UNKNOWN',
+        'justification' => $content
+    ];
 }
 
 function analyzeWithAI($workOrderData, $geminiApiKey, $grokApiKey) {
