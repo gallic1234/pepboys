@@ -63,12 +63,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     </head>
     <body>
         <div class="processing-container">
-            <h2>Processing CSV File...</h2>
-            <div class="progress mb-3">
-                <div id="progressBar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
-            </div>
-            <div class="progress-info">
-                <p id="statusText">Initializing...</p>
+            <h2>Analyzing Work Orders</h2>
+            <div class="alert alert-info mb-3">
+                <div class="d-flex align-items-center">
+                    <div class="spinner-border text-primary me-3" role="status">
+                        <span class="visually-hidden">Processing...</span>
+                    </div>
+                    <div>
+                        <strong>Processing your CSV file...</strong>
+                        <p class="mb-0 mt-1" id="statusText">Analyzing work orders and calculating CAPEX/OPEX allocations.</p>
+                    </div>
+                </div>
             </div>
             <div class="results-container" id="results">
     <?php
@@ -106,10 +111,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
             </div>
         </div>
         <script>
+            // Hide the processing message and show completion
             setTimeout(function() {
-                document.getElementById('statusText').innerHTML = '<strong>✅ Processing Complete!</strong>';
-                document.getElementById('progressBar').style.width = '100%';
-                document.getElementById('progressBar').classList.remove('progress-bar-animated');
+                var alertDiv = document.querySelector('.alert-info');
+                if (alertDiv) {
+                    alertDiv.className = 'alert alert-success mb-3';
+                    alertDiv.innerHTML = '<strong>✅ Analysis Complete!</strong> All work orders have been processed.';
+                }
             }, 500);
         </script>
     </body>
@@ -228,31 +236,15 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
     $processedCount = 0;
     $totalWorkOrders = count($workOrders);
 
-    echo '<script>document.getElementById("statusText").innerHTML = "Processing ' . $totalWorkOrders . ' work orders...";</script>';
-    flush();
+    // Process silently without updates
 
     foreach ($workOrders as $workOrderNum => $rows) {
         $processedCount++;
         $progress = round(($processedCount / $totalWorkOrders) * 100);
 
-        echo '<script>
-            document.getElementById("progressBar").style.width = "' . $progress . '%";
-            document.getElementById("statusText").innerHTML = "Processing work order ' . $processedCount . ' of ' . $totalWorkOrders . '...";
-        </script>';
-        flush();
+        // Processing silently
 
-        echo '<div class="row-result pending" id="wo-' . htmlspecialchars($workOrderNum) . '">
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <strong style="font-size: 1.1em;">Work Order: ' . htmlspecialchars($workOrderNum) . '</strong>
-                        <span class="text-muted" style="margin-left: 15px;">Processing ' . count($rows) . ' line items...</span>
-                    </div>
-                    <div class="spinner-border spinner-border-sm text-warning" role="status">
-                        <span class="visually-hidden">Loading...</span>
-                    </div>
-                </div>
-              </div>';
-        flush();
+        // Don't show processing status - just process silently
 
         // Analyze the work order
         $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey);
@@ -290,26 +282,31 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
             $borderClass = 'mixed';
         }
 
+        // Create the result display
+        echo '<div class="row-result ' . $borderClass . '" style="display: none;" id="wo-' . htmlspecialchars($workOrderNum) . '">';
+        echo '<div style="margin-bottom: 10px;">';
+        echo '<strong style="font-size: 1.1em;">Work Order: ' . htmlspecialchars($workOrderNum) . '</strong>';
+        echo '</div>';
+        echo '<div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">';
+        echo '<span class="badge ' . $badgeClass . '" style="font-size: 1em;">' . $analysis['determination'] . '</span>';
+        echo '<div style="font-weight: bold;">';
+        echo '<span style="color: #28a745; font-size: 1.2em;">CAPEX Total (incl. tax): $' . number_format($analysis['total_capex'], 2) . '</span>';
+        echo '</div>';
+        echo '</div>';
+        echo '<div style="border-left: 3px solid #6c757d; padding-left: 10px; margin-top: 10px;">';
+        echo '<strong>Justification:</strong> ' . htmlspecialchars($analysis['justification']);
+        echo '</div>';
+        echo '<div style="margin-top: 10px; font-size: 0.9em; color: #6c757d;">';
+        echo '<span>Base CAPEX: $' . number_format($analysis['capex_amount'], 2) . ' + Tax: $' . number_format($analysis['capex_tax'], 2) . '</span> | ';
+        echo '<span>OPEX Total: $' . number_format($analysis['total_opex'], 2) . '</span> | ';
+        echo '<span>Grand Total: $' . number_format($analysis['total_capex'] + $analysis['total_opex'], 2) . '</span>';
+        echo '</div>';
+        echo '</div>';
+
         echo '<script>
-            document.getElementById("wo-' . htmlspecialchars($workOrderNum) . '").className = "row-result ' . $borderClass . '";
-            document.getElementById("wo-' . htmlspecialchars($workOrderNum) . '").innerHTML =
-                "<div style=\'margin-bottom: 10px;\'>" +
-                "<strong style=\'font-size: 1.1em;\'>Work Order: ' . htmlspecialchars(addslashes($workOrderNum)) . '</strong>" +
-                "</div>" +
-                "<div style=\'display: flex; align-items: center; gap: 15px; margin-bottom: 10px;\'>" +
-                "<span class=\"badge ' . $badgeClass . '\" style=\'font-size: 1em;\'>' . $analysis['determination'] . '</span>" +
-                "<div style=\'font-weight: bold;\'>" +
-                "<span style=\'color: #28a745; font-size: 1.2em;\'>CAPEX Total (incl. tax): $' . number_format($analysis['total_capex'], 2) . '</span>" +
-                "</div>" +
-                "</div>" +
-                "<div style=\'border-left: 3px solid #6c757d; padding-left: 10px; margin-top: 10px;\'>" +
-                "<strong>Justification:</strong> ' . htmlspecialchars(addslashes($analysis['justification'])) . '" +
-                "</div>" +
-                "<div style=\'margin-top: 10px; font-size: 0.9em; color: #6c757d;\'>" +
-                "<span>Base CAPEX: $' . number_format($analysis['capex_amount'], 2) . ' + Tax: $' . number_format($analysis['capex_tax'], 2) . '</span> | " +
-                "<span>OPEX Total: $' . number_format($analysis['total_opex'], 2) . '</span> | " +
-                "<span>Grand Total: $' . number_format($analysis['total_capex'] + $analysis['total_opex'], 2) . '</span>" +
-                "</div>";
+            setTimeout(function() {
+                document.getElementById("wo-' . htmlspecialchars($workOrderNum) . '").style.display = "block";
+            }, 100);
         </script>';
         flush();
 
