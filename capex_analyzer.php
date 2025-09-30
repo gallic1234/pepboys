@@ -407,21 +407,29 @@ function analyzeWithAI($workOrderData, $geminiApiKey, $grokApiKey) {
             return $result;
         }
         error_log("Gemini API failed, falling back to Grok: " . $result['justification']);
+        echo '<script>console.log("Gemini API failed: ' . addslashes($result['justification']) . '");</script>';
+    } else {
+        echo '<script>console.log("Gemini API key is empty, skipping to Grok");</script>';
     }
 
     // Fallback to Grok
     if (!empty($grokApiKey)) {
+        echo '<script>console.log("Trying Grok API...");</script>';
         $result = analyzeWithGrok($workOrderData, $grokApiKey);
         if ($result['determination'] !== 'ERROR') {
+            echo '<script>console.log("Grok API succeeded");</script>';
             return $result;
         }
         error_log("Grok API also failed: " . $result['justification']);
+        echo '<script>console.error("Grok API failed: ' . addslashes($result['justification']) . '");</script>';
+    } else {
+        echo '<script>console.log("Grok API key is empty");</script>';
     }
 
     // Both failed
     return [
         'determination' => 'ERROR',
-        'justification' => 'All AI models failed to process the request'
+        'justification' => 'All AI models failed to process the request. Please check API keys in config.php'
     ];
 }
 
@@ -583,7 +591,7 @@ OPEX_AMOUNT: [dollar amount without tax]
 JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria. For MIXED classifications, specify which items are CAPEX and which are OPEX]";
 
     $data = [
-        'model' => 'grok-beta',
+        'model' => 'grok-4-fast-non-reasoning',
         'messages' => [
             [
                 'role' => 'user',
@@ -628,7 +636,8 @@ JUSTIFICATION: [Professional explanation citing specific items and ASC 360 crite
             if (isset($errorData['error']['message'])) {
                 $errorMsg .= " - " . $errorData['error']['message'];
             }
-            error_log("Grok API Error: " . json_encode($errorData));
+            error_log("Grok API Error Response: " . $response);
+            echo '<script>console.error("Grok API HTTP ' . $httpCode . ' Response:", ' . json_encode($response) . ');</script>';
         }
         return [
             'determination' => 'ERROR',
