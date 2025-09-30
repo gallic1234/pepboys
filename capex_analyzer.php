@@ -224,6 +224,9 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
         // Analyze the work order
         $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey);
 
+        echo '<script>console.log("Analysis result for WO ' . htmlspecialchars($workOrderNum) . ':", ' . json_encode($analysis) . ');</script>';
+        flush();
+
         // Write cumulative row for this work order
         $outputRow = $rows[0]; // Start with first row's data
 
@@ -335,6 +338,9 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey) {
         'total_tax' => $totalTax
     ]);
 
+    echo '<script>console.log("Work order data prepared - Total cost: $' . number_format($totalCost, 2) . ', Items: ' . count($lineItems) . '");</script>';
+    flush();
+
     // Get AI analysis
     $analysis = analyzeWithAI($workOrderData, $geminiApiKey, $grokApiKey);
 
@@ -355,17 +361,23 @@ function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
         'justification' => $analysis['justification']
     ];
 
+    // Log what we're parsing
+    error_log("Parsing AI response: " . substr($analysis['justification'], 0, 200));
+
     // Extract determination
     if (preg_match('/DETERMINATION:\s*(CAPEX|OPEX|MIXED)/i', $analysis['justification'], $matches)) {
         $result['determination'] = strtoupper($matches[1]);
+        error_log("Found determination: " . $result['determination']);
     }
 
     // Extract amounts from AI response
     if (preg_match('/CAPEX_AMOUNT:\s*\$?([\d,]+\.?\d*)/i', $analysis['justification'], $matches)) {
         $result['capex_amount'] = floatval(str_replace(',', '', $matches[1]));
+        error_log("Found CAPEX amount: " . $result['capex_amount']);
     }
     if (preg_match('/OPEX_AMOUNT:\s*\$?([\d,]+\.?\d*)/i', $analysis['justification'], $matches)) {
         $result['opex_amount'] = floatval(str_replace(',', '', $matches[1]));
+        error_log("Found OPEX amount: " . $result['opex_amount']);
     }
 
     // If amounts weren't parsed, use simple allocation based on determination
@@ -655,6 +667,8 @@ JUSTIFICATION: [Professional explanation citing specific items and ASC 360 crite
     }
 
     $content = $responseData['choices'][0]['message']['content'];
+
+    echo '<script>console.log("Grok response received:", ' . json_encode(substr($content, 0, 500)) . ');</script>';
 
     return [
         'determination' => 'UNKNOWN',
