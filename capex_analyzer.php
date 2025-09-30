@@ -145,6 +145,7 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
 
     // Find important column indices
     $columnMap = [];
+    echo '<script>console.log("CSV Headers:", ' . json_encode($headers) . ');</script>';
     foreach ($headers as $index => $header) {
         $headerLower = strtolower(trim($header));
         if (strpos($headerLower, 'work order') !== false || $index === 0) {
@@ -153,19 +154,21 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey)
         if (strpos($headerLower, 'ifm invoice description') !== false || strpos($headerLower, 'description') !== false) {
             $columnMap['description'] = $index;
         }
-        if (strpos($headerLower, 'unit cost') !== false || strpos($headerLower, 'unit price') !== false) {
+        if (strpos($headerLower, 'unit cost') !== false || strpos($headerLower, 'unit price') !== false || strpos($headerLower, 'cost') !== false) {
             $columnMap['unit_cost'] = $index;
         }
         if (strpos($headerLower, 'quantity') !== false || strpos($headerLower, 'qty') !== false) {
             $columnMap['quantity'] = $index;
         }
-        if (strpos($headerLower, 'line item cost') !== false || strpos($headerLower, 'line cost') !== false || strpos($headerLower, 'extended') !== false) {
+        if (strpos($headerLower, 'line item cost') !== false || strpos($headerLower, 'line cost') !== false || strpos($headerLower, 'extended') !== false || strpos($headerLower, 'total') !== false) {
             $columnMap['line_cost'] = $index;
         }
-        if (strpos($headerLower, 'tax') !== false && strpos($headerLower, 'total') !== false) {
+        if (strpos($headerLower, 'tax') !== false) {
             $columnMap['total_tax'] = $index;
         }
     }
+    echo '<script>console.log("Column mapping:", ' . json_encode($columnMap) . ');</script>';
+    flush();
 
     // Add new columns to headers
     $newHeaders = array_merge($headers, [
@@ -296,19 +299,53 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey) {
     $totalTax = 0;
     $lineItems = [];
 
-    foreach ($rows as $row) {
-        $description = isset($columnMap['description']) ? $row[$columnMap['description']] : '';
+    // Debug first row to see what data we have
+    if (count($rows) > 0) {
+        echo '<script>console.log("First row data for WO:", ' . json_encode($rows[0]) . ');</script>';
+    }
+
+    foreach ($rows as $rowIndex => $row) {
+        // Try multiple ways to find description
+        $description = '';
+        if (isset($columnMap['description'])) {
+            $description = $row[$columnMap['description']] ?? '';
+        }
+        // If no description column found, try to find it in any column with text
+        if (empty($description)) {
+            foreach ($row as $idx => $cell) {
+                if (strlen($cell) > 20 && !is_numeric(str_replace(['$', ',', '.'], '', $cell))) {
+                    $description = $cell;
+                    break;
+                }
+            }
+        }
+
         $unitCost = isset($columnMap['unit_cost']) ? floatval(str_replace(['$', ','], '', $row[$columnMap['unit_cost']])) : 0;
         $quantity = isset($columnMap['quantity']) ? floatval($row[$columnMap['quantity']]) : 1;
         $lineCost = isset($columnMap['line_cost']) ? floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']])) : ($unitCost * $quantity);
 
-        if (!empty($description)) {
+        // If no cost found, try to find numeric values in the row
+        if ($lineCost == 0) {
+            foreach ($row as $idx => $cell) {
+                $cleanValue = str_replace(['$', ','], '', $cell);
+                if (is_numeric($cleanValue) && floatval($cleanValue) > 0 && floatval($cleanValue) < 100000) {
+                    $lineCost = floatval($cleanValue);
+                    break;
+                }
+            }
+        }
+
+        if (!empty(trim($description))) {
             $descriptions[] = trim($description);
             $lineItems[] = [
-                'description' => $description,
+                'description' => trim($description),
                 'cost' => $lineCost
             ];
             $totalCost += $lineCost;
+
+            if ($rowIndex == 0) {
+                echo '<script>console.log("First line item: ", ' . json_encode(['description' => trim($description), 'cost' => $lineCost]) . ');</script>';
+            }
         }
 
         // Get tax (usually same for all rows in a work order)
@@ -318,6 +355,8 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey) {
     }
 
     if (empty($descriptions)) {
+        echo '<script>console.error("No descriptions found in work order. Column map: ", ' . json_encode($columnMap) . ');</script>';
+        echo '<script>console.error("First row was: ", ' . json_encode(isset($rows[0]) ? $rows[0] : 'No rows') . ');</script>';
         return [
             'determination' => 'ERROR',
             'capex_amount' => 0,
@@ -326,7 +365,7 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey) {
             'opex_tax' => 0,
             'total_capex' => 0,
             'total_opex' => 0,
-            'justification' => 'No descriptions found in work order'
+            'justification' => 'No descriptions found in work order - check CSV column headers'
         ];
     }
 
