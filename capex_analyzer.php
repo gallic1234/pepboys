@@ -751,7 +751,7 @@ JUSTIFICATION: [Professional explanation citing specific items and ASC 360 crite
 
 CATEGORY RULES:
 - ONLY categorize work orders that contain CAPEX (CAPEX or MIXED determinations)
-- Pure OPEX work orders should have category "N/A"
+- Pure OPEX work orders should have category N/A
 - Category Definitions (for CAPEX work):
   * Controls/Automation: Control systems, automation, thermostats, sensors, BMS
   * Infrastructure/Utility: Electrical, plumbing, structural, utilities, power systems
@@ -930,7 +930,7 @@ JUSTIFICATION: [Professional explanation citing specific items and ASC 360 crite
 
 CATEGORY RULES:
 - ONLY categorize work orders that contain CAPEX (CAPEX or MIXED determinations)
-- Pure OPEX work orders should have category "N/A"
+- Pure OPEX work orders should have category N/A
 - Category Definitions (for CAPEX work):
   * Controls/Automation: Control systems, automation, thermostats, sensors, BMS
   * Infrastructure/Utility: Electrical, plumbing, structural, utilities, power systems
@@ -1204,12 +1204,12 @@ LINE 2: CAPEX:XX% OPEX:XX% [Brief explanation - if labor, can be split based on 
 [Continue for all line items]
 
 OVERALL DETERMINATION: [CAPEX/OPEX/MIXED]
-CATEGORY: [ONLY if determination is CAPEX or MIXED - Choose ONE: Controls/Automation OR Infrastructure/Utility OR Heater Replacement. If OPEX only, write "N/A"]
+CATEGORY: [ONLY if determination is CAPEX or MIXED - Choose ONE: Controls/Automation OR Infrastructure/Utility OR Heater Replacement. If OPEX only, write N/A]
 OVERALL JUSTIFICATION: [Professional explanation of the complete work order, citing ASC 360 criteria and explaining how the individual line items combine to form the overall determination]
 
 CATEGORY RULES:
 - ONLY categorize if the work order contains CAPEX items (CAPEX or MIXED determination)
-- If the work order is purely OPEX, category should be "N/A"
+- If the work order is purely OPEX, category should be N/A
 - Category Definitions (for CAPEX work only):
   * Controls/Automation: Work related to control systems, automation equipment, thermostats, sensors, building management systems, electrical controls
   * Infrastructure/Utility: Work on building infrastructure, electrical systems, plumbing, structural components, utility connections, power distribution
@@ -1348,7 +1348,7 @@ JUSTIFICATION: [Professional explanation citing specific items and ASC 360 crite
 
 CATEGORY RULES:
 - ONLY categorize work orders that contain CAPEX (CAPEX or MIXED determinations)
-- Pure OPEX work orders should have category "N/A"
+- Pure OPEX work orders should have category N/A
 - Category Definitions (for CAPEX work):
   * Controls/Automation: Control systems, automation, thermostats, sensors, BMS
   * Infrastructure/Utility: Electrical, plumbing, structural, utilities, power systems
