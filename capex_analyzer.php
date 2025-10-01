@@ -690,17 +690,25 @@ OPEX Criteria:
 - Consumable supplies
 
 Specific Guidelines:
-- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = OPEX
-- Fan motors, switches, replacement units, major repairs = CAPEX
-- Trip charges, shipping, and freight charges = CAPEX when associated with CAPEX materials, OPEX when associated with OPEX materials
-- Labor allocation: Calculate the percentage of CAPEX materials vs OPEX materials (excluding labor, shipping, and freight from this calculation), then allocate labor costs proportionally based on this percentage
+- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = 100% OPEX
+- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX
+- CRITICAL: Every material/part/equipment must be classified as ENTIRELY (100%) CAPEX or ENTIRELY (100%) OPEX
+- NO material, part, or piece of equipment can be split between CAPEX and OPEX
+- Labor allocation: Based on the ratio of CAPEX materials to OPEX materials
+- Trip charges, shipping, freight: Allocated proportionally unless specifically for CAPEX items
 - Tax should be allocated proportionally between CAPEX and OPEX
 
-IMPORTANT Labor and Service Charge Allocation:
-1. First identify all material/parts costs (excluding labor, shipping, freight, and trip charges)
-2. Calculate what percentage of materials are CAPEX vs OPEX
-3. Allocate labor costs proportionally based on the material percentage
-4. Trip charges, shipping, and freight should be allocated to CAPEX when associated with CAPEX materials
+CRITICAL ALLOCATION RULES:
+1. ALL hardware items, materials, parts, and equipment must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING OF MATERIALS
+2. Each physical item is ENTIRELY CAPEX or ENTIRELY OPEX based on ASC 360 criteria
+3. ONLY labor, shipping, freight, and trip charges can be allocated proportionally
+
+ALLOCATION PROCESS:
+1. Classify each material/part as 100% CAPEX or 100% OPEX (no splitting)
+2. Calculate total value of CAPEX materials vs OPEX materials
+3. Determine the percentage (e.g., $700 CAPEX parts + $300 OPEX parts = 70% CAPEX/30% OPEX)
+4. Apply this percentage to labor and service charges ONLY
+5. Shipping/freight for specific CAPEX items should be 100% CAPEX
 
 Please analyze and respond in this format:
 DETERMINATION: [CAPEX/OPEX/MIXED]
@@ -850,17 +858,25 @@ OPEX Criteria:
 - Consumable supplies
 
 Specific Guidelines:
-- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = OPEX
-- Fan motors, switches, replacement units, major repairs = CAPEX
-- Trip charges, shipping, and freight charges = CAPEX when associated with CAPEX materials, OPEX when associated with OPEX materials
-- Labor allocation: Calculate the percentage of CAPEX materials vs OPEX materials (excluding labor, shipping, and freight from this calculation), then allocate labor costs proportionally based on this percentage
+- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = 100% OPEX
+- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX
+- CRITICAL: Every material/part/equipment must be classified as ENTIRELY (100%) CAPEX or ENTIRELY (100%) OPEX
+- NO material, part, or piece of equipment can be split between CAPEX and OPEX
+- Labor allocation: Based on the ratio of CAPEX materials to OPEX materials
+- Trip charges, shipping, freight: Allocated proportionally unless specifically for CAPEX items
 - Tax should be allocated proportionally between CAPEX and OPEX
 
-IMPORTANT Labor and Service Charge Allocation:
-1. First identify all material/parts costs (excluding labor, shipping, freight, and trip charges)
-2. Calculate what percentage of materials are CAPEX vs OPEX
-3. Allocate labor costs proportionally based on the material percentage
-4. Trip charges, shipping, and freight should be allocated to CAPEX when associated with CAPEX materials
+CRITICAL ALLOCATION RULES:
+1. ALL hardware items, materials, parts, and equipment must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING OF MATERIALS
+2. Each physical item is ENTIRELY CAPEX or ENTIRELY OPEX based on ASC 360 criteria
+3. ONLY labor, shipping, freight, and trip charges can be allocated proportionally
+
+ALLOCATION PROCESS:
+1. Classify each material/part as 100% CAPEX or 100% OPEX (no splitting)
+2. Calculate total value of CAPEX materials vs OPEX materials
+3. Determine the percentage (e.g., $700 CAPEX parts + $300 OPEX parts = 70% CAPEX/30% OPEX)
+4. Apply this percentage to labor and service charges ONLY
+5. Shipping/freight for specific CAPEX items should be 100% CAPEX
 
 Please analyze and respond in this format:
 DETERMINATION: [CAPEX/OPEX/MIXED]
@@ -1075,21 +1091,32 @@ OPEX Criteria:
 - Consumable supplies
 
 Specific Guidelines:
-- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = OPEX
-- Fan motors, switches, replacement units, major repairs = CAPEX
-- Trip charges, shipping, and freight charges = CAPEX when associated with CAPEX materials, OPEX when associated with OPEX materials
-- Labor allocation: Calculate the percentage of CAPEX materials vs OPEX materials (excluding labor, shipping, and freight from this calculation), then allocate labor costs proportionally based on this percentage
+- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = 100% OPEX
+- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX
+- CRITICAL: Every material/part/equipment must be classified as ENTIRELY (100%) CAPEX or ENTIRELY (100%) OPEX
+- NO material, part, or piece of equipment can be split between CAPEX and OPEX
+- Labor allocation: Based on the ratio of CAPEX materials to OPEX materials
+- Trip charges, shipping, freight: Allocated proportionally unless specifically for CAPEX items
 
-IMPORTANT:
-1. First identify all material/parts costs (excluding labor, shipping, freight, and trip charges)
-2. Calculate what percentage of materials are CAPEX vs OPEX
-3. Allocate labor, trip charges, shipping, and freight proportionally based on the material percentage
-4. If shipping/freight/trip charges are specifically for CAPEX items, allocate 100% to CAPEX
+CRITICAL ALLOCATION RULES:
+1. ALL materials, parts, equipment, and hardware must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING
+2. Each physical item/material is ENTIRELY one or the other based on its nature
+3. Only labor, shipping, freight, and trip charges can be split proportionally
+
+ALLOCATION PROCESS:
+1. First classify each material/part/equipment as 100% CAPEX or 100% OPEX
+2. Calculate the total dollar value of CAPEX materials vs OPEX materials
+3. Determine the percentage split (e.g., if $800 CAPEX materials and $200 OPEX materials, then 80% CAPEX/20% OPEX)
+4. Apply this percentage ONLY to labor, shipping, freight, and trip charges
+5. If shipping/freight is specifically for a CAPEX item, allocate it 100% to CAPEX
+
+REMEMBER: For materials/parts/equipment lines, use either CAPEX:100% OPEX:0% or CAPEX:0% OPEX:100%
+Only labor/service lines can have split percentages like CAPEX:70% OPEX:30%
 
 Please analyze EACH line item individually, then provide overall analysis. Respond in this EXACT format:
 
-LINE 1: CAPEX:XX% OPEX:XX% [Brief explanation of why this specific item is CAPEX/OPEX]
-LINE 2: CAPEX:XX% OPEX:XX% [Brief explanation of why this specific item is CAPEX/OPEX]
+LINE 1: CAPEX:XX% OPEX:XX% [Brief explanation - if material/part, must be 100% one category]
+LINE 2: CAPEX:XX% OPEX:XX% [Brief explanation - if labor, can be split based on material ratio]
 [Continue for all line items]
 
 OVERALL DETERMINATION: [CAPEX/OPEX/MIXED]
@@ -1197,17 +1224,25 @@ OPEX Criteria:
 - Consumable supplies
 
 Specific Guidelines:
-- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = OPEX
-- Fan motors, switches, replacement units, major repairs = CAPEX
-- Trip charges, shipping, and freight charges = CAPEX when associated with CAPEX materials, OPEX when associated with OPEX materials
-- Labor allocation: Calculate the percentage of CAPEX materials vs OPEX materials (excluding labor, shipping, and freight from this calculation), then allocate labor costs proportionally based on this percentage
+- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = 100% OPEX
+- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX
+- CRITICAL: Every material/part/equipment must be classified as ENTIRELY (100%) CAPEX or ENTIRELY (100%) OPEX
+- NO material, part, or piece of equipment can be split between CAPEX and OPEX
+- Labor allocation: Based on the ratio of CAPEX materials to OPEX materials
+- Trip charges, shipping, freight: Allocated proportionally unless specifically for CAPEX items
 - Tax should be allocated proportionally between CAPEX and OPEX
 
-IMPORTANT Labor and Service Charge Allocation:
-1. First identify all material/parts costs (excluding labor, shipping, freight, and trip charges)
-2. Calculate what percentage of materials are CAPEX vs OPEX
-3. Allocate labor costs proportionally based on the material percentage
-4. Trip charges, shipping, and freight should be allocated to CAPEX when associated with CAPEX materials
+CRITICAL ALLOCATION RULES:
+1. ALL hardware items, materials, parts, and equipment must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING OF MATERIALS
+2. Each physical item is ENTIRELY CAPEX or ENTIRELY OPEX based on ASC 360 criteria
+3. ONLY labor, shipping, freight, and trip charges can be allocated proportionally
+
+ALLOCATION PROCESS:
+1. Classify each material/part as 100% CAPEX or 100% OPEX (no splitting)
+2. Calculate total value of CAPEX materials vs OPEX materials
+3. Determine the percentage (e.g., $700 CAPEX parts + $300 OPEX parts = 70% CAPEX/30% OPEX)
+4. Apply this percentage to labor and service charges ONLY
+5. Shipping/freight for specific CAPEX items should be 100% CAPEX
 
 Please analyze and respond in this format:
 DETERMINATION: [CAPEX/OPEX/MIXED]
