@@ -692,14 +692,21 @@ OPEX Criteria:
 Specific Guidelines:
 - Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = OPEX
 - Fan motors, switches, replacement units, major repairs = CAPEX
-- Labor follows the same classification as the materials it's associated with
+- Trip charges, shipping, and freight charges = CAPEX when associated with CAPEX materials, OPEX when associated with OPEX materials
+- Labor allocation: Calculate the percentage of CAPEX materials vs OPEX materials (excluding labor, shipping, and freight from this calculation), then allocate labor costs proportionally based on this percentage
 - Tax should be allocated proportionally between CAPEX and OPEX
 
-Please analyze each line item and respond in this format:
+IMPORTANT Labor and Service Charge Allocation:
+1. First identify all material/parts costs (excluding labor, shipping, freight, and trip charges)
+2. Calculate what percentage of materials are CAPEX vs OPEX
+3. Allocate labor costs proportionally based on the material percentage
+4. Trip charges, shipping, and freight should be allocated to CAPEX when associated with CAPEX materials
+
+Please analyze and respond in this format:
 DETERMINATION: [CAPEX/OPEX/MIXED]
 CAPEX_AMOUNT: [dollar amount without tax]
 OPEX_AMOUNT: [dollar amount without tax]
-JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria. For MIXED classifications, specify which items are CAPEX and which are OPEX]";
+JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]";
 
     $data = [
         'model' => 'gpt-4-turbo-preview',
@@ -845,14 +852,21 @@ OPEX Criteria:
 Specific Guidelines:
 - Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = OPEX
 - Fan motors, switches, replacement units, major repairs = CAPEX
-- Labor follows the same classification as the materials it's associated with
+- Trip charges, shipping, and freight charges = CAPEX when associated with CAPEX materials, OPEX when associated with OPEX materials
+- Labor allocation: Calculate the percentage of CAPEX materials vs OPEX materials (excluding labor, shipping, and freight from this calculation), then allocate labor costs proportionally based on this percentage
 - Tax should be allocated proportionally between CAPEX and OPEX
 
-Please analyze each line item and respond in this format:
+IMPORTANT Labor and Service Charge Allocation:
+1. First identify all material/parts costs (excluding labor, shipping, freight, and trip charges)
+2. Calculate what percentage of materials are CAPEX vs OPEX
+3. Allocate labor costs proportionally based on the material percentage
+4. Trip charges, shipping, and freight should be allocated to CAPEX when associated with CAPEX materials
+
+Please analyze and respond in this format:
 DETERMINATION: [CAPEX/OPEX/MIXED]
 CAPEX_AMOUNT: [dollar amount without tax]
 OPEX_AMOUNT: [dollar amount without tax]
-JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria. For MIXED classifications, specify which items are CAPEX and which are OPEX]";
+JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]";
 
     $data = [
         'contents' => [
@@ -1063,7 +1077,14 @@ OPEX Criteria:
 Specific Guidelines:
 - Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = OPEX
 - Fan motors, switches, replacement units, major repairs = CAPEX
-- Labor follows the same classification as the materials it's associated with
+- Trip charges, shipping, and freight charges = CAPEX when associated with CAPEX materials, OPEX when associated with OPEX materials
+- Labor allocation: Calculate the percentage of CAPEX materials vs OPEX materials (excluding labor, shipping, and freight from this calculation), then allocate labor costs proportionally based on this percentage
+
+IMPORTANT:
+1. First identify all material/parts costs (excluding labor, shipping, freight, and trip charges)
+2. Calculate what percentage of materials are CAPEX vs OPEX
+3. Allocate labor, trip charges, shipping, and freight proportionally based on the material percentage
+4. If shipping/freight/trip charges are specifically for CAPEX items, allocate 100% to CAPEX
 
 Please analyze EACH line item individually, then provide overall analysis. Respond in this EXACT format:
 
@@ -1178,14 +1199,21 @@ OPEX Criteria:
 Specific Guidelines:
 - Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = OPEX
 - Fan motors, switches, replacement units, major repairs = CAPEX
-- Labor follows the same classification as the materials it's associated with
+- Trip charges, shipping, and freight charges = CAPEX when associated with CAPEX materials, OPEX when associated with OPEX materials
+- Labor allocation: Calculate the percentage of CAPEX materials vs OPEX materials (excluding labor, shipping, and freight from this calculation), then allocate labor costs proportionally based on this percentage
 - Tax should be allocated proportionally between CAPEX and OPEX
 
-Please analyze each line item and respond in this format:
+IMPORTANT Labor and Service Charge Allocation:
+1. First identify all material/parts costs (excluding labor, shipping, freight, and trip charges)
+2. Calculate what percentage of materials are CAPEX vs OPEX
+3. Allocate labor costs proportionally based on the material percentage
+4. Trip charges, shipping, and freight should be allocated to CAPEX when associated with CAPEX materials
+
+Please analyze and respond in this format:
 DETERMINATION: [CAPEX/OPEX/MIXED]
 CAPEX_AMOUNT: [dollar amount without tax]
 OPEX_AMOUNT: [dollar amount without tax]
-JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria. For MIXED classifications, specify which items are CAPEX and which are OPEX]";
+JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]";
 
     $data = [
         'model' => 'grok-4-fast-non-reasoning',
