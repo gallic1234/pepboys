@@ -215,7 +215,8 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
         'Work Order Overall Determination',
         'Work Order Total CAPEX',
         'Work Order Total OPEX',
-        'Work Order Overall Justification'
+        'Work Order Overall Justification',
+        'Work Order Category'
     ]);
     fputcsv($output, $newHeaders);
 
@@ -286,6 +287,7 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
             $outputRow[] = '$' . number_format($analysis['total_capex'], 2);
             $outputRow[] = '$' . number_format($analysis['total_opex'], 2);
             $outputRow[] = $analysis['justification'];
+            $outputRow[] = $analysis['category'] ?? '';
 
             fputcsv($output, $outputRow);
         }
@@ -504,7 +506,8 @@ function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
         'opex_tax' => 0,
         'total_capex' => 0,
         'total_opex' => 0,
-        'justification' => $analysis['justification']
+        'justification' => $analysis['justification'],
+        'category' => 'Uncategorized'
     ];
 
     // Log what we're parsing
@@ -515,6 +518,28 @@ function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
     if (preg_match('/DETERMINATION:\s*(CAPEX|OPEX|MIXED)/i', $analysis['justification'], $matches)) {
         $result['determination'] = strtoupper($matches[1]);
         error_log("Found determination: " . $result['determination']);
+    }
+
+    // Extract category
+    if (preg_match('/CATEGORY:\s*([^\n]+)/i', $analysis['justification'], $matches)) {
+        $category = trim($matches[1]);
+        // Check if it's N/A (for OPEX-only work orders)
+        if (stripos($category, 'n/a') !== false || stripos($category, 'none') !== false) {
+            $result['category'] = '';
+        }
+        // Normalize category names for CAPEX work
+        elseif (stripos($category, 'control') !== false || stripos($category, 'automat') !== false) {
+            $result['category'] = 'Controls/Automation';
+        } elseif (stripos($category, 'infrastructure') !== false || stripos($category, 'utility') !== false) {
+            $result['category'] = 'Infrastructure/Utility';
+        } elseif (stripos($category, 'heater') !== false || stripos($category, 'heating') !== false || stripos($category, 'hvac') !== false) {
+            $result['category'] = 'Heater Replacement';
+        } else {
+            $result['category'] = $category;
+        }
+    } else {
+        // Default to empty for OPEX, will be set based on determination
+        $result['category'] = '';
     }
 
     // Extract amounts from AI response
@@ -573,6 +598,11 @@ function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
     // Calculate totals INCLUDING TAX
     $result['total_capex'] = $result['capex_amount'] + $result['capex_tax'];
     $result['total_opex'] = $result['opex_amount'] + $result['opex_tax'];
+
+    // Clear category if it's pure OPEX (no CAPEX content)
+    if ($result['determination'] === 'OPEX' || $result['total_capex'] == 0) {
+        $result['category'] = '';
+    }
 
     echo '<script>console.log("Final totals with tax - CAPEX: $' . number_format($result['total_capex'], 2) . ', OPEX: $' . number_format($result['total_opex'], 2) . '");</script>';
 
@@ -714,9 +744,18 @@ ALLOCATION PROCESS:
 
 Please analyze and respond in this format:
 DETERMINATION: [CAPEX/OPEX/MIXED]
+CATEGORY: [If CAPEX or MIXED: Controls/Automation OR Infrastructure/Utility OR Heater Replacement. If pure OPEX: N/A]
 CAPEX_AMOUNT: [dollar amount without tax]
 OPEX_AMOUNT: [dollar amount without tax]
-JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]";
+JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]
+
+CATEGORY RULES:
+- ONLY categorize work orders that contain CAPEX (CAPEX or MIXED determinations)
+- Pure OPEX work orders should have category "N/A"
+- Category Definitions (for CAPEX work):
+  * Controls/Automation: Control systems, automation, thermostats, sensors, BMS
+  * Infrastructure/Utility: Electrical, plumbing, structural, utilities, power systems
+  * Heater Replacement: HVAC, heating, cooling, compressors, air handlers, refrigeration";
 
     $data = [
         'model' => 'gpt-4-turbo-preview',
@@ -884,9 +923,18 @@ ALLOCATION PROCESS:
 
 Please analyze and respond in this format:
 DETERMINATION: [CAPEX/OPEX/MIXED]
+CATEGORY: [If CAPEX or MIXED: Controls/Automation OR Infrastructure/Utility OR Heater Replacement. If pure OPEX: N/A]
 CAPEX_AMOUNT: [dollar amount without tax]
 OPEX_AMOUNT: [dollar amount without tax]
-JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]";
+JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]
+
+CATEGORY RULES:
+- ONLY categorize work orders that contain CAPEX (CAPEX or MIXED determinations)
+- Pure OPEX work orders should have category "N/A"
+- Category Definitions (for CAPEX work):
+  * Controls/Automation: Control systems, automation, thermostats, sensors, BMS
+  * Infrastructure/Utility: Electrical, plumbing, structural, utilities, power systems
+  * Heater Replacement: HVAC, heating, cooling, compressors, air handlers, refrigeration";
 
     $data = [
         'contents' => [
@@ -974,12 +1022,28 @@ function parseDetailedAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
         'total_capex' => 0,
         'total_opex' => 0,
         'justification' => $analysis['justification'],
+        'category' => '',
         'line_items' => []
     ];
 
     // Parse overall determination
     if (preg_match('/OVERALL DETERMINATION:\s*(CAPEX|OPEX|MIXED)/i', $analysis['justification'], $matches)) {
         $result['determination'] = strtoupper($matches[1]);
+    }
+
+    // Parse category
+    if (preg_match('/CATEGORY:\s*([^\n]+)/i', $analysis['justification'], $matches)) {
+        $category = trim($matches[1]);
+        // Normalize category names
+        if (stripos($category, 'control') !== false || stripos($category, 'automat') !== false) {
+            $result['category'] = 'Controls/Automation';
+        } elseif (stripos($category, 'infrastructure') !== false || stripos($category, 'utility') !== false) {
+            $result['category'] = 'Infrastructure/Utility';
+        } elseif (stripos($category, 'heater') !== false || stripos($category, 'heating') !== false || stripos($category, 'hvac') !== false) {
+            $result['category'] = 'Heater Replacement';
+        } else {
+            $result['category'] = $category;
+        }
     }
 
     // Parse line items
@@ -1063,6 +1127,11 @@ function parseDetailedAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
     $result['total_capex'] = $result['capex_amount'] + $result['capex_tax'];
     $result['total_opex'] = $result['opex_amount'] + $result['opex_tax'];
 
+    // Clear category if it's pure OPEX (no CAPEX content)
+    if ($result['determination'] === 'OPEX' || $result['total_capex'] == 0) {
+        $result['category'] = '';
+    }
+
     return $result;
 }
 
@@ -1135,7 +1204,16 @@ LINE 2: CAPEX:XX% OPEX:XX% [Brief explanation - if labor, can be split based on 
 [Continue for all line items]
 
 OVERALL DETERMINATION: [CAPEX/OPEX/MIXED]
-OVERALL JUSTIFICATION: [Professional explanation of the complete work order, citing ASC 360 criteria and explaining how the individual line items combine to form the overall determination]";
+CATEGORY: [ONLY if determination is CAPEX or MIXED - Choose ONE: Controls/Automation OR Infrastructure/Utility OR Heater Replacement. If OPEX only, write "N/A"]
+OVERALL JUSTIFICATION: [Professional explanation of the complete work order, citing ASC 360 criteria and explaining how the individual line items combine to form the overall determination]
+
+CATEGORY RULES:
+- ONLY categorize if the work order contains CAPEX items (CAPEX or MIXED determination)
+- If the work order is purely OPEX, category should be "N/A"
+- Category Definitions (for CAPEX work only):
+  * Controls/Automation: Work related to control systems, automation equipment, thermostats, sensors, building management systems, electrical controls
+  * Infrastructure/Utility: Work on building infrastructure, electrical systems, plumbing, structural components, utility connections, power distribution
+  * Heater Replacement: HVAC systems, heating units, cooling systems, air handlers, compressors, refrigeration units, ventilation equipment";
 
     $data = [
         'model' => 'grok-4-fast-non-reasoning',
@@ -1263,9 +1341,18 @@ ALLOCATION PROCESS:
 
 Please analyze and respond in this format:
 DETERMINATION: [CAPEX/OPEX/MIXED]
+CATEGORY: [If CAPEX or MIXED: Controls/Automation OR Infrastructure/Utility OR Heater Replacement. If pure OPEX: N/A]
 CAPEX_AMOUNT: [dollar amount without tax]
 OPEX_AMOUNT: [dollar amount without tax]
-JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]";
+JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]
+
+CATEGORY RULES:
+- ONLY categorize work orders that contain CAPEX (CAPEX or MIXED determinations)
+- Pure OPEX work orders should have category "N/A"
+- Category Definitions (for CAPEX work):
+  * Controls/Automation: Control systems, automation, thermostats, sensors, BMS
+  * Infrastructure/Utility: Electrical, plumbing, structural, utilities, power systems
+  * Heater Replacement: HVAC, heating, cooling, compressors, air handlers, refrigeration";
 
     $data = [
         'model' => 'grok-4-fast-non-reasoning',
