@@ -2,9 +2,12 @@
 session_start();
 require_once 'config.php';
 
-$geminiApiKey = defined('GEMINI_API_KEY') ? GEMINI_API_KEY : getenv('GEMINI_API_KEY');
+// Temporarily disabled - only using Grok
+// $geminiApiKey = defined('GEMINI_API_KEY') ? GEMINI_API_KEY : getenv('GEMINI_API_KEY');
 $grokApiKey = defined('GROK_API_KEY') ? GROK_API_KEY : getenv('GROK_API_KEY');
-$openaiApiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : getenv('OPENAI_API_KEY');
+// $openaiApiKey = defined('OPENAI_API_KEY') ? OPENAI_API_KEY : getenv('OPENAI_API_KEY');
+$geminiApiKey = '';
+$openaiApiKey = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     // Disable output buffering for real-time updates
@@ -202,19 +205,17 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
     echo '<script>console.log("Column mapping:", ' . json_encode($columnMap) . ');</script>';
     flush();
 
-    // Add new columns to headers
+    // Add new columns to headers for line-by-line analysis
     $newHeaders = array_merge($headers, [
-        'CAPEX/OPEX Determination',
-        'CAPEX Base Amount',
-        'OPEX Base Amount',
-        'CAPEX Tax Allocation',
-        'OPEX Tax Allocation',
-        'Total CAPEX (incl. Tax)',
-        'Total OPEX (incl. Tax)',
-        'Justification',
-        'Grok Response',
-        'Gemini Response',
-        'OpenAI Response'
+        'Line Item CAPEX %',
+        'Line Item OPEX %',
+        'Line Item CAPEX Amount',
+        'Line Item OPEX Amount',
+        'Line Item Justification',
+        'Work Order Overall Determination',
+        'Work Order Total CAPEX',
+        'Work Order Total OPEX',
+        'Work Order Overall Justification'
     ]);
     fputcsv($output, $newHeaders);
 
@@ -256,24 +257,38 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
         echo '<script>console.log("Analysis result for WO ' . htmlspecialchars($workOrderNum) . ':", ' . json_encode($analysis) . ');</script>';
         flush();
 
-        // Write cumulative row for this work order
-        $outputRow = $rows[0]; // Start with first row's data
+        // Write each row with its individual analysis
+        foreach ($rows as $rowIndex => $row) {
+            $outputRow = $row;
 
-        // Add analysis results
-        $outputRow = array_pad($outputRow, count($headers), '');
-        $outputRow[] = $analysis['determination'];
-        $outputRow[] = number_format($analysis['capex_amount'], 2);
-        $outputRow[] = number_format($analysis['opex_amount'], 2);
-        $outputRow[] = number_format($analysis['capex_tax'], 2);
-        $outputRow[] = number_format($analysis['opex_tax'], 2);
-        $outputRow[] = number_format($analysis['total_capex'], 2);
-        $outputRow[] = number_format($analysis['total_opex'], 2);
-        $outputRow[] = $analysis['justification'];
-        $outputRow[] = $analysis['grok_response'] ?? '';
-        $outputRow[] = $analysis['gemini_response'] ?? '';
-        $outputRow[] = $analysis['openai_response'] ?? '';
+            // Pad to ensure we have all original columns
+            $outputRow = array_pad($outputRow, count($headers), '');
 
-        fputcsv($output, $outputRow);
+            // Add line item analysis
+            if (isset($analysis['line_items'][$rowIndex])) {
+                $lineAnalysis = $analysis['line_items'][$rowIndex];
+                $outputRow[] = number_format($lineAnalysis['capex_percent'], 1) . '%';
+                $outputRow[] = number_format($lineAnalysis['opex_percent'], 1) . '%';
+                $outputRow[] = '$' . number_format($lineAnalysis['capex_amount'], 2);
+                $outputRow[] = '$' . number_format($lineAnalysis['opex_amount'], 2);
+                $outputRow[] = $lineAnalysis['justification'];
+            } else {
+                // Empty line item analysis columns
+                $outputRow[] = '';
+                $outputRow[] = '';
+                $outputRow[] = '';
+                $outputRow[] = '';
+                $outputRow[] = '';
+            }
+
+            // Add overall work order analysis (same for all rows in the work order)
+            $outputRow[] = $analysis['determination'];
+            $outputRow[] = '$' . number_format($analysis['total_capex'], 2);
+            $outputRow[] = '$' . number_format($analysis['total_opex'], 2);
+            $outputRow[] = $analysis['justification'];
+
+            fputcsv($output, $outputRow);
+        }
 
         // Update display
         $badgeClass = 'bg-secondary';
@@ -472,11 +487,11 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openai
     echo '<script>console.log("Work order data prepared - Total cost: $' . number_format($totalCost, 2) . ', Items: ' . count($lineItems) . '");</script>';
     flush();
 
-    // Get AI analysis from all three models
-    $allResponses = analyzeWithAllAIs($workOrderData, $geminiApiKey, $grokApiKey, $openaiApiKey);
+    // Get AI analysis from Grok only (temporarily disabled OpenAI and Gemini)
+    $analysis = analyzeWithGrokDetailed($workOrderData, $grokApiKey);
 
-    // Parse the AI responses and determine final allocation
-    return parseAllAIResponses($allResponses, $totalCost, $totalTax, $lineItems);
+    // Parse the AI response to extract amounts and line item details
+    return parseDetailedAIResponse($analysis, $totalCost, $totalTax, $lineItems);
 }
 
 function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
@@ -564,6 +579,8 @@ function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
     return $result;
 }
 
+// Temporarily disabled - multi-AI analysis
+/*
 function analyzeWithAllAIs($workOrderData, $geminiApiKey, $grokApiKey, $openaiApiKey) {
     $responses = [
         'grok' => null,
@@ -664,7 +681,6 @@ ASC 360 CAPEX Criteria:
 - Significant repairs that extend asset life beyond one year
 - Upgrades that increase capacity, efficiency, or quality of output
 - Safety and environmental improvements
-- Generally involves material costs over $500
 
 OPEX Criteria:
 - Routine maintenance (tape, filters, belts, cleaning)
@@ -762,6 +778,7 @@ JUSTIFICATION: [Professional explanation citing specific items and ASC 360 crite
         'justification' => $content
     ];
 }
+*/
 
 function analyzeWithAI($workOrderData, $geminiApiKey, $grokApiKey) {
     // Try Gemini first
@@ -817,7 +834,6 @@ ASC 360 CAPEX Criteria:
 - Significant repairs that extend asset life beyond one year
 - Upgrades that increase capacity, efficiency, or quality of output
 - Safety and environmental improvements
-- Generally involves material costs over $500
 
 OPEX Criteria:
 - Routine maintenance (tape, filters, belts, cleaning)
@@ -913,6 +929,224 @@ JUSTIFICATION: [Professional explanation citing specific items and ASC 360 crite
     ];
 }
 
+function parseDetailedAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
+    // Initialize result with overall analysis
+    $result = [
+        'determination' => 'UNKNOWN',
+        'capex_amount' => 0,
+        'opex_amount' => 0,
+        'capex_tax' => 0,
+        'opex_tax' => 0,
+        'total_capex' => 0,
+        'total_opex' => 0,
+        'justification' => $analysis['justification'],
+        'line_items' => []
+    ];
+
+    // Parse overall determination
+    if (preg_match('/OVERALL DETERMINATION:\s*(CAPEX|OPEX|MIXED)/i', $analysis['justification'], $matches)) {
+        $result['determination'] = strtoupper($matches[1]);
+    }
+
+    // Parse line items
+    if (preg_match_all('/LINE (\d+):\s*CAPEX:(\d+)%\s*OPEX:(\d+)%\s*(.+?)(?=LINE \d+:|OVERALL|$)/si', $analysis['justification'], $matches, PREG_SET_ORDER)) {
+        foreach ($matches as $match) {
+            $lineNum = intval($match[1]) - 1; // Convert to 0-based index
+            $capexPercent = floatval($match[2]);
+            $opexPercent = floatval($match[3]);
+            $lineJustification = trim($match[4]);
+
+            if (isset($lineItems[$lineNum])) {
+                $lineCost = $lineItems[$lineNum]['cost'];
+                $result['line_items'][$lineNum] = [
+                    'capex_percent' => $capexPercent,
+                    'opex_percent' => $opexPercent,
+                    'capex_amount' => ($lineCost * $capexPercent / 100),
+                    'opex_amount' => ($lineCost * $opexPercent / 100),
+                    'justification' => $lineJustification
+                ];
+
+                // Accumulate totals
+                $result['capex_amount'] += $result['line_items'][$lineNum]['capex_amount'];
+                $result['opex_amount'] += $result['line_items'][$lineNum]['opex_amount'];
+            }
+        }
+    }
+
+    // If no line items were parsed, fall back to simple allocation
+    if (empty($result['line_items'])) {
+        // Parse simple CAPEX/OPEX amounts
+        if (preg_match('/CAPEX_AMOUNT:\s*\$?([\d,]+\.?\d*)/i', $analysis['justification'], $matches)) {
+            $result['capex_amount'] = floatval(str_replace(',', '', $matches[1]));
+        }
+        if (preg_match('/OPEX_AMOUNT:\s*\$?([\d,]+\.?\d*)/i', $analysis['justification'], $matches)) {
+            $result['opex_amount'] = floatval(str_replace(',', '', $matches[1]));
+        }
+
+        // If amounts weren't parsed, use determination for allocation
+        if ($result['capex_amount'] == 0 && $result['opex_amount'] == 0) {
+            if ($result['determination'] === 'CAPEX') {
+                $result['capex_amount'] = $totalCost;
+            } elseif ($result['determination'] === 'OPEX') {
+                $result['opex_amount'] = $totalCost;
+            } else {
+                $result['capex_amount'] = $totalCost * 0.5;
+                $result['opex_amount'] = $totalCost * 0.5;
+            }
+        }
+
+        // Create default line items based on overall allocation
+        foreach ($lineItems as $idx => $item) {
+            $lineCapexRatio = $totalCost > 0 ? $result['capex_amount'] / $totalCost : 0.5;
+            $lineOpexRatio = 1 - $lineCapexRatio;
+
+            $result['line_items'][$idx] = [
+                'capex_percent' => $lineCapexRatio * 100,
+                'opex_percent' => $lineOpexRatio * 100,
+                'capex_amount' => $item['cost'] * $lineCapexRatio,
+                'opex_amount' => $item['cost'] * $lineOpexRatio,
+                'justification' => 'Proportional allocation based on overall determination'
+            ];
+        }
+    }
+
+    // Allocate tax proportionally
+    if ($totalCost > 0 && ($result['capex_amount'] > 0 || $result['opex_amount'] > 0)) {
+        $actualTotal = $result['capex_amount'] + $result['opex_amount'];
+        if ($actualTotal > 0) {
+            $capexRatio = $result['capex_amount'] / $actualTotal;
+            $opexRatio = $result['opex_amount'] / $actualTotal;
+        } else {
+            $capexRatio = 0;
+            $opexRatio = 0;
+        }
+
+        $result['capex_tax'] = $totalTax * $capexRatio;
+        $result['opex_tax'] = $totalTax * $opexRatio;
+    }
+
+    // Calculate totals INCLUDING TAX
+    $result['total_capex'] = $result['capex_amount'] + $result['capex_tax'];
+    $result['total_opex'] = $result['opex_amount'] + $result['opex_tax'];
+
+    return $result;
+}
+
+function analyzeWithGrokDetailed($workOrderData, $apiKey) {
+    $workOrder = json_decode($workOrderData, true);
+
+    $prompt = "You are a professional accountant with extensive experience in ASC 360 (Property, Plant, and Equipment) compliance and public entity financial reporting.
+
+Analyze this work order with multiple line items. For EACH line item, determine its individual CAPEX vs OPEX allocation, then provide an overall determination.
+
+Line Items:
+" . implode("\n", array_map(function($item, $idx) {
+    return ($idx + 1) . ". " . $item['description'] . " - Cost: $" . number_format($item['cost'], 2);
+}, $workOrder['line_items'], array_keys($workOrder['line_items']))) . "
+
+Total Cost: $" . number_format($workOrder['total_cost'], 2) . "
+Total Tax: $" . number_format($workOrder['total_tax'], 2) . "
+
+ASC 360 CAPEX Criteria:
+- Replacement of major components (fan motors, compressors, switches, control boards, entire units)
+- Significant repairs that extend asset life beyond one year
+- Upgrades that increase capacity, efficiency, or quality of output
+- Safety and environmental improvements
+
+OPEX Criteria:
+- Routine maintenance (tape, filters, belts, cleaning)
+- Minor repairs (leak repairs, recharging refrigerant)
+- Inspections and evaluations
+- Items that merely maintain existing condition
+- Consumable supplies
+
+Specific Guidelines:
+- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = OPEX
+- Fan motors, switches, replacement units, major repairs = CAPEX
+- Labor follows the same classification as the materials it's associated with
+
+Please analyze EACH line item individually, then provide overall analysis. Respond in this EXACT format:
+
+LINE 1: CAPEX:XX% OPEX:XX% [Brief explanation of why this specific item is CAPEX/OPEX]
+LINE 2: CAPEX:XX% OPEX:XX% [Brief explanation of why this specific item is CAPEX/OPEX]
+[Continue for all line items]
+
+OVERALL DETERMINATION: [CAPEX/OPEX/MIXED]
+OVERALL JUSTIFICATION: [Professional explanation of the complete work order, citing ASC 360 criteria and explaining how the individual line items combine to form the overall determination]";
+
+    $data = [
+        'model' => 'grok-4-fast-non-reasoning',
+        'messages' => [
+            [
+                'role' => 'user',
+                'content' => $prompt
+            ]
+        ],
+        'temperature' => 0.3
+    ];
+
+    $jsonPayload = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+
+    if (json_last_error() !== JSON_ERROR_NONE) {
+        error_log("JSON Encoding Error: " . json_last_error_msg());
+        return [
+            'determination' => 'ERROR',
+            'justification' => 'Failed to encode request data'
+        ];
+    }
+
+    $ch = curl_init('https://api.x.ai/v1/chat/completions');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json; charset=utf-8',
+        'Authorization: Bearer ' . $apiKey
+    ]);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($httpCode !== 200 || !$response) {
+        $errorMsg = "API Error (HTTP $httpCode)";
+        if ($curlError) {
+            $errorMsg .= " - CURL: $curlError";
+        }
+        if ($response) {
+            $errorData = json_decode($response, true);
+            if (isset($errorData['error']['message'])) {
+                $errorMsg .= " - " . $errorData['error']['message'];
+            }
+            error_log("Grok API Error Response: " . $response);
+        }
+        return [
+            'determination' => 'ERROR',
+            'justification' => $errorMsg
+        ];
+    }
+
+    $responseData = json_decode($response, true);
+
+    if (!isset($responseData['choices'][0]['message']['content'])) {
+        return [
+            'determination' => 'ERROR',
+            'justification' => 'Invalid API response'
+        ];
+    }
+
+    $content = $responseData['choices'][0]['message']['content'];
+
+    echo '<script>console.log("Grok detailed response received:", ' . json_encode(substr($content, 0, 800)) . ');</script>';
+
+    return [
+        'determination' => 'UNKNOWN',
+        'justification' => $content
+    ];
+}
+
 function analyzeWithGrok($workOrderData, $apiKey) {
     $workOrder = json_decode($workOrderData, true);
 
@@ -933,7 +1167,6 @@ ASC 360 CAPEX Criteria:
 - Significant repairs that extend asset life beyond one year
 - Upgrades that increase capacity, efficiency, or quality of output
 - Safety and environmental improvements
-- Generally involves material costs over $500
 
 OPEX Criteria:
 - Routine maintenance (tape, filters, belts, cleaning)
