@@ -828,6 +828,7 @@ ASC 360 CAPEX Criteria:
 - Safety and environmental improvements
 
 OPEX Criteria:
+- ANY work order containing the word "temporary" is automatically OPEX
 - Routine maintenance (tape, filters, belts, cleaning)
 - Minor repairs (leak repairs, recharging refrigerant)
 - Inspections and evaluations
@@ -835,8 +836,9 @@ OPEX Criteria:
 - Consumable supplies
 
 Specific Guidelines:
+- TEMPORARY WORK RULE: If the work order description contains "temporary" anywhere, ALL items are 100% OPEX
 - Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = 100% OPEX
-- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX
+- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX (unless temporary)
 - CRITICAL: Every material/part/equipment must be classified as ENTIRELY (100%) CAPEX or ENTIRELY (100%) OPEX
 - NO material, part, or piece of equipment can be split between CAPEX and OPEX
 - Labor allocation: Proportional to the ratio of CAPEX materials to OPEX materials
@@ -845,9 +847,10 @@ Specific Guidelines:
 - Tax should be allocated proportionally between CAPEX and OPEX
 
 CRITICAL ALLOCATION RULES:
-1. ALL hardware items, materials, parts, and equipment must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING OF MATERIALS
-2. Each physical item is ENTIRELY CAPEX or ENTIRELY OPEX based on ASC 360 criteria
-3. ONLY labor, shipping, freight, and trip charges can be allocated proportionally
+1. TEMPORARY WORK OVERRIDE: Any work order with "temporary" in the description is automatically 100% OPEX
+2. ALL hardware items, materials, parts, and equipment must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING OF MATERIALS
+3. Each physical item is ENTIRELY CAPEX or ENTIRELY OPEX based on ASC 360 criteria
+4. ONLY labor, shipping, freight, and trip charges can be allocated proportionally
 
 ALLOCATION PROCESS:
 1. Classify each material/part as 100% CAPEX or 100% OPEX (no splitting)
@@ -856,6 +859,8 @@ ALLOCATION PROCESS:
 4. SHIPPING/FREIGHT RULE: If ANY materials are CAPEX, then 100% of shipping/freight is CAPEX
 5. LABOR RULE: Apply the material percentage to labor (70% CAPEX materials = 70% of labor is CAPEX)
 6. TRIP CHARGES: Apply the same percentage as labor
+
+IMPORTANT: First check if the work order contains the word "temporary" - if it does, everything is OPEX.
 
 Please analyze and respond in this format:
 DETERMINATION: [CAPEX/OPEX/MIXED]
@@ -1009,6 +1014,7 @@ ASC 360 CAPEX Criteria:
 - Safety and environmental improvements
 
 OPEX Criteria:
+- ANY work order containing the word "temporary" is automatically OPEX
 - Routine maintenance (tape, filters, belts, cleaning)
 - Minor repairs (leak repairs, recharging refrigerant)
 - Inspections and evaluations
@@ -1016,8 +1022,9 @@ OPEX Criteria:
 - Consumable supplies
 
 Specific Guidelines:
+- TEMPORARY WORK RULE: If the work order description contains "temporary" anywhere, ALL items are 100% OPEX
 - Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = 100% OPEX
-- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX
+- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX (unless temporary)
 - CRITICAL: Every material/part/equipment must be classified as ENTIRELY (100%) CAPEX or ENTIRELY (100%) OPEX
 - NO material, part, or piece of equipment can be split between CAPEX and OPEX
 - Labor allocation: Proportional to the ratio of CAPEX materials to OPEX materials
@@ -1026,9 +1033,10 @@ Specific Guidelines:
 - Tax should be allocated proportionally between CAPEX and OPEX
 
 CRITICAL ALLOCATION RULES:
-1. ALL hardware items, materials, parts, and equipment must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING OF MATERIALS
-2. Each physical item is ENTIRELY CAPEX or ENTIRELY OPEX based on ASC 360 criteria
-3. ONLY labor, shipping, freight, and trip charges can be allocated proportionally
+1. TEMPORARY WORK OVERRIDE: Any work order with "temporary" in the description is automatically 100% OPEX
+2. ALL hardware items, materials, parts, and equipment must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING OF MATERIALS
+3. Each physical item is ENTIRELY CAPEX or ENTIRELY OPEX based on ASC 360 criteria
+4. ONLY labor, shipping, freight, and trip charges can be allocated proportionally
 
 ALLOCATION PROCESS:
 1. Classify each material/part as 100% CAPEX or 100% OPEX (no splitting)
@@ -1037,6 +1045,8 @@ ALLOCATION PROCESS:
 4. SHIPPING/FREIGHT RULE: If ANY materials are CAPEX, then 100% of shipping/freight is CAPEX
 5. LABOR RULE: Apply the material percentage to labor (70% CAPEX materials = 70% of labor is CAPEX)
 6. TRIP CHARGES: Apply the same percentage as labor
+
+IMPORTANT: First check if the work order contains the word "temporary" - if it does, everything is OPEX.
 
 Please analyze and respond in this format:
 DETERMINATION: [CAPEX/OPEX/MIXED]
@@ -1276,6 +1286,7 @@ ASC 360 CAPEX Criteria:
 - Safety and environmental improvements
 
 OPEX Criteria:
+- ANY work order containing the word "temporary" is automatically OPEX
 - Routine maintenance (tape, filters, belts, cleaning)
 - Minor repairs (leak repairs, recharging refrigerant)
 - Inspections and evaluations
@@ -1283,8 +1294,9 @@ OPEX Criteria:
 - Consumable supplies
 
 Specific Guidelines:
+- TEMPORARY WORK RULE: If the work order description contains "temporary" anywhere, ALL items are 100% OPEX
 - Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = 100% OPEX
-- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX
+- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX (unless temporary)
 - CRITICAL: Every material/part/equipment must be classified as ENTIRELY (100%) CAPEX or ENTIRELY (100%) OPEX
 - NO material, part, or piece of equipment can be split between CAPEX and OPEX
 - Labor allocation: Proportional to the ratio of CAPEX materials to OPEX materials
@@ -1292,9 +1304,10 @@ Specific Guidelines:
 - Trip charges: Allocated proportionally like labor based on material ratio
 
 CRITICAL ALLOCATION RULES:
-1. ALL materials, parts, equipment, and hardware must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING
-2. Each physical item/material is ENTIRELY one or the other based on its nature
-3. Only labor, shipping, freight, and trip charges can be split proportionally
+1. TEMPORARY WORK OVERRIDE: If any work order description contains "temporary", ALL items are 100% OPEX regardless of type
+2. ALL materials, parts, equipment, and hardware must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING
+3. Each physical item/material is ENTIRELY one or the other based on its nature
+4. Only labor, shipping, freight, and trip charges can be split proportionally
 
 ALLOCATION PROCESS:
 1. First classify each material/part/equipment as 100% CAPEX or 100% OPEX
@@ -1315,6 +1328,8 @@ EXAMPLE: If work order has $800 fan motor (CAPEX), $200 filters (OPEX), $300 lab
 - Filters: CAPEX:0% OPEX:100%
 - Labor: CAPEX:80% OPEX:20% (based on $800/$1000 material ratio)
 - Shipping: CAPEX:100% OPEX:0% (because CAPEX materials exist)
+
+IMPORTANT: First check if the work order contains the word "temporary" - if it does, ALL items are OPEX.
 
 Please analyze EACH line item individually, then provide overall analysis. Respond in this EXACT format:
 
@@ -1431,6 +1446,7 @@ ASC 360 CAPEX Criteria:
 - Safety and environmental improvements
 
 OPEX Criteria:
+- ANY work order containing the word "temporary" is automatically OPEX
 - Routine maintenance (tape, filters, belts, cleaning)
 - Minor repairs (leak repairs, recharging refrigerant)
 - Inspections and evaluations
@@ -1438,8 +1454,9 @@ OPEX Criteria:
 - Consumable supplies
 
 Specific Guidelines:
+- TEMPORARY WORK RULE: If the work order description contains "temporary" anywhere, ALL items are 100% OPEX
 - Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = 100% OPEX
-- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX
+- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX (unless temporary)
 - CRITICAL: Every material/part/equipment must be classified as ENTIRELY (100%) CAPEX or ENTIRELY (100%) OPEX
 - NO material, part, or piece of equipment can be split between CAPEX and OPEX
 - Labor allocation: Proportional to the ratio of CAPEX materials to OPEX materials
@@ -1448,9 +1465,10 @@ Specific Guidelines:
 - Tax should be allocated proportionally between CAPEX and OPEX
 
 CRITICAL ALLOCATION RULES:
-1. ALL hardware items, materials, parts, and equipment must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING OF MATERIALS
-2. Each physical item is ENTIRELY CAPEX or ENTIRELY OPEX based on ASC 360 criteria
-3. ONLY labor, shipping, freight, and trip charges can be allocated proportionally
+1. TEMPORARY WORK OVERRIDE: Any work order with "temporary" in the description is automatically 100% OPEX
+2. ALL hardware items, materials, parts, and equipment must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING OF MATERIALS
+3. Each physical item is ENTIRELY CAPEX or ENTIRELY OPEX based on ASC 360 criteria
+4. ONLY labor, shipping, freight, and trip charges can be allocated proportionally
 
 ALLOCATION PROCESS:
 1. Classify each material/part as 100% CAPEX or 100% OPEX (no splitting)
@@ -1459,6 +1477,8 @@ ALLOCATION PROCESS:
 4. SHIPPING/FREIGHT RULE: If ANY materials are CAPEX, then 100% of shipping/freight is CAPEX
 5. LABOR RULE: Apply the material percentage to labor (70% CAPEX materials = 70% of labor is CAPEX)
 6. TRIP CHARGES: Apply the same percentage as labor
+
+IMPORTANT: First check if the work order contains the word "temporary" - if it does, everything is OPEX.
 
 Please analyze and respond in this format:
 DETERMINATION: [CAPEX/OPEX/MIXED]
