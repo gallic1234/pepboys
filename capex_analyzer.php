@@ -98,23 +98,48 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     }
 
     $tempFile = $uploadedFile['tmp_name'];
+    $originalFilename = pathinfo($uploadedFile['name'], PATHINFO_FILENAME);
 
-    // Create a persistent directory for output files
-    $outputDir = sys_get_temp_dir() . '/capex_analysis';
+    // Create a persistent directory for incomplete files in the same directory as this script
+    $outputDir = __DIR__ . '/unfinished';
     if (!is_dir($outputDir)) {
         mkdir($outputDir, 0777, true);
     }
 
-    // Use a consistent filename based on the original file for recovery
-    $outputFilename = 'capex_analysis_' . md5_file($tempFile) . '_' . date('Y-m-d_His') . '.csv';
+    // Generate a random 4-digit number for uniqueness
+    $randomNumber = str_pad(rand(0, 9999), 4, '0', STR_PAD_LEFT);
+
+    // Create filename: originalname_incomplete_XXXX.csv
+    $outputFilename = $originalFilename . '_incomplete_' . $randomNumber . '.csv';
     $outputFile = $outputDir . '/' . $outputFilename;
 
     // Process CSV with real-time updates
-    processCSVRealtime($tempFile, $outputFile, $geminiApiKey, $grokApiKey, $openaiApiKey);
+    $processingResult = processCSVRealtime($tempFile, $outputFile, $geminiApiKey, $grokApiKey, $openaiApiKey);
 
-    $_SESSION['results_file'] = $outputFile;
+    // Check if processing was complete and file was moved
+    $completedFilename = str_replace('_incomplete_', '_complete_', basename($outputFile));
+    $completedFile = __DIR__ . '/' . $completedFilename;
+
+    if (file_exists($completedFile)) {
+        $_SESSION['results_file'] = $completedFile;
+    } else {
+        $_SESSION['results_file'] = $outputFile;
+    }
     $_SESSION['original_filename'] = pathinfo($uploadedFile['name'], PATHINFO_FILENAME);
     $_SESSION['processing_complete'] = true;
+
+    // Display file location
+    echo '<div class="alert alert-info mt-3">';
+    echo '<strong>Processing Status:</strong><br>';
+    if (isset($_SESSION['results_file']) && file_exists($_SESSION['results_file'])) {
+        echo '✅ Complete file saved: <code>' . htmlspecialchars(basename($_SESSION['results_file'])) . '</code><br>';
+        echo '<small>Location: ' . htmlspecialchars(dirname($_SESSION['results_file'])) . '</small>';
+    } else {
+        echo '⚠️ Incomplete file saved: <code>' . htmlspecialchars($outputFilename) . '</code><br>';
+        echo '<small>Location: ' . htmlspecialchars($outputDir) . '</small><br>';
+        echo '<small class="text-warning">File saved in "unfinished" folder due to incomplete processing.</small>';
+    }
+    echo '</div>';
 
     ?>
             </div>
@@ -123,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
                 <a href="<?php echo $_SERVER['PHP_SELF']; ?>" class="btn btn-secondary">🔄 Analyze Another File</a>
                 <?php
                 // Show recovery option if there are incomplete files
-                $recoveryDir = sys_get_temp_dir() . '/capex_analysis';
+                $recoveryDir = __DIR__ . '/unfinished';
                 if (is_dir($recoveryDir)) {
                     $progressFiles = glob($recoveryDir . '/*.progress');
                     if (!empty($progressFiles)) {
@@ -176,7 +201,10 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
     $progressFile = $outputFile . '.progress';
     $processedWorkOrders = [];
     if (file_exists($progressFile)) {
-        $processedWorkOrders = json_decode(file_get_contents($progressFile), true) ?? [];
+        $progressData = json_decode(file_get_contents($progressFile), true);
+        if (is_array($progressData)) {
+            $processedWorkOrders = isset($progressData['processed']) ? $progressData['processed'] : $progressData;
+        }
     }
 
     // Read and process headers
@@ -354,7 +382,12 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
 
         // Save progress
         $processedWorkOrders[] = $workOrderNum;
-        file_put_contents($progressFile, json_encode($processedWorkOrders));
+        file_put_contents($progressFile, json_encode([
+            'processed' => $processedWorkOrders,
+            'total' => $totalWorkOrders,
+            'filename' => $outputFilename,
+            'timestamp' => time()
+        ]));
 
         // Update display
         $badgeClass = 'bg-secondary';
@@ -414,9 +447,22 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
     fclose($input);
     fclose($output);
 
-    // Clean up progress file on successful completion
+    // On successful completion, move file to completed location
     if (file_exists($progressFile)) {
         unlink($progressFile);
+
+        // Move the file from unfinished to the parent directory with 'complete' in name
+        $completedFilename = str_replace('_incomplete_', '_complete_', basename($outputFile));
+        $completedFile = dirname($outputDir) . '/' . $completedFilename;
+
+        // Copy to completed location
+        if (copy($outputFile, $completedFile)) {
+            // Update session with new location
+            $_SESSION['results_file'] = $completedFile;
+
+            // Optionally delete the incomplete file
+            // unlink($outputFile);
+        }
     }
 
     return true;
