@@ -858,7 +858,7 @@ ALLOCATION PROCESS:
 3. Determine the percentage (e.g., $700 CAPEX parts + $300 OPEX parts = 70% CAPEX/30% OPEX)
 4. SHIPPING/FREIGHT RULE: If ANY materials are CAPEX, then 100% of shipping/freight is CAPEX
 5. LABOR RULE: Apply the material percentage to labor (70% CAPEX materials = 70% of labor is CAPEX)
-6. TRIP CHARGES: Apply the same percentage as labor
+6. TRIP CHARGES: Apply the same percentage as labor 
 
 IMPORTANT: First check if the work order contains the word "temporary" - if it does, everything is OPEX.
 
