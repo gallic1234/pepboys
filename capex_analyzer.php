@@ -98,7 +98,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     }
 
     $tempFile = $uploadedFile['tmp_name'];
-    $outputFile = sys_get_temp_dir() . '/capex_analysis_' . uniqid() . '.csv';
+
+    // Create a persistent directory for output files
+    $outputDir = sys_get_temp_dir() . '/capex_analysis';
+    if (!is_dir($outputDir)) {
+        mkdir($outputDir, 0777, true);
+    }
+
+    // Use a consistent filename based on the original file for recovery
+    $outputFilename = 'capex_analysis_' . md5_file($tempFile) . '_' . date('Y-m-d_His') . '.csv';
+    $outputFile = $outputDir . '/' . $outputFilename;
 
     // Process CSV with real-time updates
     processCSVRealtime($tempFile, $outputFile, $geminiApiKey, $grokApiKey, $openaiApiKey);
@@ -112,6 +121,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
             <div class="mt-4">
                 <a href="?download=1" class="btn btn-success">📥 Download Results CSV</a>
                 <a href="<?php echo $_SERVER['PHP_SELF']; ?>" class="btn btn-secondary">🔄 Analyze Another File</a>
+                <?php
+                // Show recovery option if there are incomplete files
+                $recoveryDir = sys_get_temp_dir() . '/capex_analysis';
+                if (is_dir($recoveryDir)) {
+                    $progressFiles = glob($recoveryDir . '/*.progress');
+                    if (!empty($progressFiles)) {
+                        echo '<div class="alert alert-warning mt-3">';
+                        echo '<strong>Incomplete Analysis Found!</strong><br>';
+                        echo 'Found ' . count($progressFiles) . ' incomplete analysis file(s). ';
+                        echo 'The partial results have been saved and can be downloaded.';
+                        echo '</div>';
+                    }
+                }
+                ?>
             </div>
         </div>
         <script>
@@ -147,6 +170,13 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
     if (!$input || !$output) {
         echo '<div class="alert alert-danger">Failed to process files</div>';
         return false;
+    }
+
+    // Create a progress file to track processed work orders
+    $progressFile = $outputFile . '.progress';
+    $processedWorkOrders = [];
+    if (file_exists($progressFile)) {
+        $processedWorkOrders = json_decode(file_get_contents($progressFile), true) ?? [];
     }
 
     // Read and process headers
@@ -245,6 +275,13 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
     // Process silently without updates
 
     foreach ($workOrders as $workOrderNum => $rows) {
+        // Skip if already processed (in case of restart)
+        if (in_array($workOrderNum, $processedWorkOrders)) {
+            $processedCount++;
+            echo '<script>console.log("Skipping already processed work order: ' . htmlspecialchars($workOrderNum) . '");</script>';
+            continue;
+        }
+
         $processedCount++;
         $progress = round(($processedCount / $totalWorkOrders) * 100);
 
@@ -252,11 +289,31 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
 
         // Don't show processing status - just process silently
 
-        // Analyze the work order
-        $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
+        // Analyze the work order with error handling
+        try {
+            $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
 
-        echo '<script>console.log("Analysis result for WO ' . htmlspecialchars($workOrderNum) . ':", ' . json_encode($analysis) . ');</script>';
-        flush();
+            echo '<script>console.log("Analysis result for WO ' . htmlspecialchars($workOrderNum) . ':", ' . json_encode($analysis) . ');</script>';
+            flush();
+        } catch (Exception $e) {
+            // Log error but continue processing
+            error_log("Error processing work order $workOrderNum: " . $e->getMessage());
+            echo '<script>console.error("Error processing WO ' . htmlspecialchars($workOrderNum) . ': ' . htmlspecialchars($e->getMessage()) . '");</script>';
+
+            // Create error result
+            $analysis = [
+                'determination' => 'ERROR',
+                'capex_amount' => 0,
+                'opex_amount' => 0,
+                'capex_tax' => 0,
+                'opex_tax' => 0,
+                'total_capex' => 0,
+                'total_opex' => 0,
+                'justification' => 'Processing error: ' . $e->getMessage(),
+                'category' => '',
+                'line_items' => []
+            ];
+        }
 
         // Write each row with its individual analysis
         foreach ($rows as $rowIndex => $row) {
@@ -291,6 +348,13 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
 
             fputcsv($output, $outputRow);
         }
+
+        // Flush the output buffer to save to disk immediately
+        fflush($output);
+
+        // Save progress
+        $processedWorkOrders[] = $workOrderNum;
+        file_put_contents($progressFile, json_encode($processedWorkOrders));
 
         // Update display
         $badgeClass = 'bg-secondary';
@@ -349,6 +413,11 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
 
     fclose($input);
     fclose($output);
+
+    // Clean up progress file on successful completion
+    if (file_exists($progressFile)) {
+        unlink($progressFile);
+    }
 
     return true;
 }
@@ -792,6 +861,8 @@ CATEGORY RULES:
     ]);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
 
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -970,6 +1041,8 @@ CATEGORY RULES:
     ]);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
 
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -1245,6 +1318,8 @@ CATEGORY RULES:
     ]);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
 
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -1384,6 +1459,8 @@ CATEGORY RULES:
     ]);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
 
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
