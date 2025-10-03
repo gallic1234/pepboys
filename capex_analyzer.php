@@ -300,51 +300,47 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
     $processedCount = 0;
     $totalWorkOrders = count($workOrders);
 
-    // Process silently without updates
+    // Process in batches of 5 using multi-curl
+    $batchSize = 5;
+    $workOrdersToProcess = [];
 
+    // Filter out already processed work orders
     foreach ($workOrders as $workOrderNum => $rows) {
-        // Skip if already processed (in case of restart)
-        if (in_array($workOrderNum, $processedWorkOrders)) {
-            $processedCount++;
+        if (!in_array($workOrderNum, $processedWorkOrders)) {
+            $workOrdersToProcess[$workOrderNum] = $rows;
+        } else {
             echo '<script>console.log("Skipping already processed work order: ' . htmlspecialchars($workOrderNum) . '");</script>';
-            continue;
         }
+    }
 
-        $processedCount++;
-        $progress = round(($processedCount / $totalWorkOrders) * 100);
+    // Process in batches
+    $workOrderBatches = array_chunk($workOrdersToProcess, $batchSize, true);
+    $batchCount = count($workOrderBatches);
 
-        // Processing silently
+    echo '<div class="alert alert-info">Processing ' . count($workOrdersToProcess) . ' work orders in ' . $batchCount . ' batches of up to ' . $batchSize . ' each...</div>';
+    flush();
 
-        // Don't show processing status - just process silently
+    foreach ($workOrderBatches as $batchIndex => $batch) {
+        $currentBatch = $batchIndex + 1;
+        echo '<div class="row-result pending"><strong>Batch ' . $currentBatch . '/' . $batchCount . ':</strong> Processing ' . count($batch) . ' work orders...</div>';
+        flush();
 
-        // Analyze the work order with error handling
-        try {
-            $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
+        // Process batch using multi-curl
+        $batchResults = processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
+
+        // Process results from the batch
+        foreach ($batchResults as $workOrderNum => $analysis) {
+            $processedCount++;
+            $progress = round(($processedCount / $totalWorkOrders) * 100);
 
             echo '<script>console.log("Analysis result for WO ' . htmlspecialchars($workOrderNum) . ':", ' . json_encode($analysis) . ');</script>';
             flush();
-        } catch (Exception $e) {
-            // Log error but continue processing
-            error_log("Error processing work order $workOrderNum: " . $e->getMessage());
-            echo '<script>console.error("Error processing WO ' . htmlspecialchars($workOrderNum) . ': ' . htmlspecialchars($e->getMessage()) . '");</script>';
 
-            // Create error result
-            $analysis = [
-                'determination' => 'ERROR',
-                'capex_amount' => 0,
-                'opex_amount' => 0,
-                'capex_tax' => 0,
-                'opex_tax' => 0,
-                'total_capex' => 0,
-                'total_opex' => 0,
-                'justification' => 'Processing error: ' . $e->getMessage(),
-                'category' => '',
-                'line_items' => []
-            ];
-        }
+            // Get the rows for this work order
+            $rows = $batch[$workOrderNum];
 
-        // Write each row with its individual analysis
-        foreach ($rows as $rowIndex => $row) {
+            // Write each row with its individual analysis
+            foreach ($rows as $rowIndex => $row) {
             $outputRow = $row;
 
             // Pad to ensure we have all original columns
@@ -440,8 +436,15 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
             'justification' => $analysis['justification']
         ];
 
-        // Small delay to prevent API rate limiting
-        usleep(300000); // 0.3 seconds
+            // Track processed work orders
+            $processedWorkOrders[] = $workOrderNum;
+        }
+        // Update progress file after each batch
+        file_put_contents($progressFile, json_encode($processedWorkOrders));
+        fflush($output);
+
+        echo '<div class="row-result success"><strong>Batch ' . $currentBatch . '/' . $batchCount . ':</strong> Completed!</div>';
+        flush();
     }
 
     fclose($input);
@@ -466,6 +469,194 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
     }
 
     return true;
+}
+
+function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey) {
+    $multiHandle = curl_multi_init();
+    $curlHandles = [];
+    $workOrderPrompts = [];
+
+    // Prepare all prompts and curl handles
+    foreach ($batch as $workOrderNum => $rows) {
+        // Build prompt for this work order
+        $descriptions = [];
+        $lineItems = [];
+
+        foreach ($rows as $row) {
+            $description = '';
+            if (isset($columnMap['description'])) {
+                $description = trim($row[$columnMap['description']] ?? '');
+            }
+
+            $unitCost = isset($columnMap['unit_cost']) ?
+                       floatval(str_replace(['$', ','], '', $row[$columnMap['unit_cost']])) : 0;
+            $quantity = isset($columnMap['quantity']) ?
+                       floatval($row[$columnMap['quantity']]) : 1;
+            $lineCost = isset($columnMap['line_cost']) ?
+                       floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']])) : 0;
+
+            if ($lineCost == 0 && $unitCost > 0) {
+                $lineCost = $unitCost * $quantity;
+            }
+
+            $descriptions[] = "- Item: $description, Unit Cost: \$$unitCost, Quantity: $quantity, Line Cost: \$$lineCost";
+            $lineItems[] = [
+                'description' => $description,
+                'unit_cost' => $unitCost,
+                'quantity' => $quantity,
+                'line_cost' => $lineCost
+            ];
+        }
+
+        $workOrderPrompts[$workOrderNum] = $lineItems;
+
+        // Create prompt
+        $prompt = getDetailedAnalysisPromptForBatch();
+        $prompt .= "\n\nWork Order Details:\n" . implode("\n", $descriptions);
+
+        // Create curl handle for this work order
+        $ch = curl_init();
+
+        // Try Grok API
+        if (!empty($grokApiKey)) {
+            curl_setopt($ch, CURLOPT_URL, 'https://api.x.ai/v1/chat/completions');
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $grokApiKey
+            ]);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+                'model' => 'grok-beta',
+                'messages' => [
+                    ['role' => 'user', 'content' => $prompt]
+                ],
+                'temperature' => 0.1,
+                'max_tokens' => 2000
+            ]));
+            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+        }
+
+        curl_multi_add_handle($multiHandle, $ch);
+        $curlHandles[$workOrderNum] = $ch;
+    }
+
+    // Execute all requests simultaneously
+    $running = null;
+    do {
+        $status = curl_multi_exec($multiHandle, $running);
+        if ($running) {
+            curl_multi_select($multiHandle); // Wait for activity on any curl handle
+        }
+    } while ($running && $status == CURLM_OK);
+
+    // Collect all responses
+    $results = [];
+    foreach ($curlHandles as $workOrderNum => $ch) {
+        $response = curl_multi_getcontent($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        if ($httpCode == 200 && $response) {
+            $data = json_decode($response, true);
+            if (isset($data['choices'][0]['message']['content'])) {
+                $aiResponse = $data['choices'][0]['message']['content'];
+                $results[$workOrderNum] = parseDetailedAIResponse($aiResponse, $batch[$workOrderNum], $columnMap);
+            } else {
+                // Error in response format
+                $results[$workOrderNum] = createErrorAnalysis($batch[$workOrderNum], $columnMap);
+            }
+        } else {
+            // HTTP error or no response
+            $results[$workOrderNum] = createErrorAnalysis($batch[$workOrderNum], $columnMap);
+        }
+
+        curl_multi_remove_handle($multiHandle, $ch);
+        curl_close($ch);
+    }
+
+    curl_multi_close($multiHandle);
+
+    return $results;
+}
+
+function getDetailedAnalysisPromptForBatch() {
+    return "You are a professional accountant analyzing HVAC work orders for CAPEX vs OPEX determination under ASC 360.
+
+ASC 360 CAPEX Criteria:
+- Replacement of major components (fan motors, compressors, switches, control boards, entire units)
+- Significant repairs that extend asset life beyond one year
+- Upgrades that increase capacity, efficiency, or quality of output
+- Safety and environmental improvements
+
+OPEX Criteria:
+- ANY work order containing the word 'temporary' is automatically OPEX
+- Routine maintenance (tape, filters, belts, cleaning)
+- Minor repairs (leak repairs, recharging refrigerant)
+- Inspections and evaluations
+- Items that merely maintain existing condition
+- Consumable supplies
+
+Specific Guidelines:
+- TEMPORARY WORK RULE: If the work order description contains 'temporary' anywhere, ALL items are 100% OPEX
+- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = 100% OPEX
+- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX (unless temporary)
+- CRITICAL: Every material/part/equipment must be classified as ENTIRELY (100%) CAPEX or ENTIRELY (100%) OPEX
+- NO material, part, or piece of equipment can be split between CAPEX and OPEX
+- Labor allocation: Proportional to the ratio of CAPEX materials to OPEX materials
+- Shipping/Freight: If ANY materials are CAPEX, then 100% of shipping/freight charges go to CAPEX
+- Trip charges: Allocated proportionally like labor based on material ratio
+- Tax should be allocated proportionally between CAPEX and OPEX
+
+CRITICAL ALLOCATION RULES:
+1. TEMPORARY WORK OVERRIDE: Any work order with 'temporary' in the description is automatically 100% OPEX
+2. ALL hardware items, materials, parts, and equipment must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING OF MATERIALS
+3. Each physical item is ENTIRELY CAPEX or ENTIRELY OPEX based on ASC 360 criteria
+4. ONLY labor, shipping, freight, and trip charges can be allocated proportionally
+
+ALLOCATION PROCESS:
+1. Classify each material/part as 100% CAPEX or 100% OPEX (no splitting)
+2. Calculate total value of CAPEX materials vs OPEX materials
+3. Determine the percentage (e.g., $700 CAPEX parts + $300 OPEX parts = 70% CAPEX/30% OPEX)
+4. SHIPPING/FREIGHT RULE: If ANY materials are CAPEX, then 100% of shipping/freight is CAPEX
+5. LABOR RULE: Apply the material percentage to labor (70% CAPEX materials = 70% of labor is CAPEX)
+6. TRIP CHARGES: Apply the same percentage as labor
+
+IMPORTANT: First check if the work order contains the word 'temporary' - if it does, everything is OPEX.
+
+Please analyze EACH line item individually, then provide overall analysis. Respond in this EXACT format:
+
+LINE 1: CAPEX:XX% OPEX:XX% [Brief explanation - if material/part, must be 100% one category]
+LINE 2: CAPEX:XX% OPEX:XX% [Brief explanation - if material/part, must be 100% one category]
+[Continue for all lines]
+
+OVERALL:
+DETERMINATION: [CAPEX/OPEX/MIXED]
+CATEGORY: [If CAPEX or MIXED: Controls/Automation OR Infrastructure/Utility OR Heater Replacement. If pure OPEX: N/A]
+CAPEX_AMOUNT: [dollar amount without tax]
+OPEX_AMOUNT: [dollar amount without tax]
+JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]";
+}
+
+function createErrorAnalysis($rows, $columnMap) {
+    $subtotal = 0;
+    foreach ($rows as $row) {
+        if (isset($columnMap['line_cost'])) {
+            $subtotal += floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']]));
+        }
+    }
+
+    return [
+        'determination' => 'ERROR',
+        'capex_amount' => 0,
+        'opex_amount' => $subtotal,
+        'capex_tax' => 0,
+        'opex_tax' => 0,
+        'total_capex' => 0,
+        'total_opex' => $subtotal,
+        'justification' => 'Error processing work order - API request failed',
+        'category' => 'N/A',
+        'line_items' => []
+    ];
 }
 
 function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey) {
