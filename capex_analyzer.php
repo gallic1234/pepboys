@@ -228,6 +228,11 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
             $columnMap['work_order'] = $index;
         }
 
+        // Look for request code column
+        if (strpos($headerLower, 'request') !== false && strpos($headerLower, 'code') !== false) {
+            $columnMap['request_code'] = $index;
+        }
+
         // Look for description column
         if (strpos($headerLower, 'ifm invoice description') !== false ||
             (strpos($headerLower, 'description') !== false && strpos($headerLower, 'pepboys') === false)) {
@@ -322,30 +327,88 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
         echo '<div class="row-result pending">Processing Work Order ' . htmlspecialchars($workOrderNum) . ' (' . $processedCount . '/' . count($workOrdersToProcess) . ')...</div>';
         flush();
 
-        // Analyze the work order with error handling
-        try {
-            $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
+        // Check if all rows are maintenance/preventive based on request code
+        $allMaintenance = true;
+        $maintenanceTotal = 0;
+        $maintenanceTax = 0;
+
+        if (isset($columnMap['request_code'])) {
+            foreach ($rows as $row) {
+                $requestCode = isset($row[$columnMap['request_code']]) ? strtoupper(trim($row[$columnMap['request_code']])) : '';
+                if (strpos($requestCode, 'MAINTENANCE') === false && strpos($requestCode, 'PREVENTIVE') === false) {
+                    $allMaintenance = false;
+                    break;
+                }
+                // Calculate totals for maintenance items
+                if (isset($columnMap['line_cost'])) {
+                    $maintenanceTotal += floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']]));
+                }
+            }
+
+            // Get tax for maintenance items
+            if ($allMaintenance && isset($columnMap['pepboys_tax']) && count($rows) > 0) {
+                $maintenanceTax = floatval(str_replace(['$', ','], '', $rows[0][$columnMap['pepboys_tax']]));
+            }
+        }
+
+        // If all lines are maintenance, skip API call and create OPEX result directly
+        if ($allMaintenance) {
+            echo '<script>console.log("WO ' . htmlspecialchars($workOrderNum) . ' - All lines are maintenance/preventive. Skipping API call.");</script>';
+            flush();
+
+            $analysis = [
+                'determination' => 'OPEX',
+                'capex_amount' => 0,
+                'opex_amount' => $maintenanceTotal,
+                'capex_tax' => 0,
+                'opex_tax' => $maintenanceTax,
+                'total_capex' => 0,
+                'total_opex' => $maintenanceTotal + $maintenanceTax,
+                'justification' => 'All line items are routine maintenance or preventive maintenance based on Request Code. Under ASC 360, routine and preventive maintenance that maintains existing condition without extending asset life is classified as OPEX.',
+                'category' => 'N/A',
+                'line_items' => []
+            ];
+
+            // Create line item details for each maintenance row
+            foreach ($rows as $rowIndex => $row) {
+                $lineCost = isset($columnMap['line_cost']) ? floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']])) : 0;
+                $analysis['line_items'][$rowIndex] = [
+                    'capex_percent' => '0',
+                    'opex_percent' => '100',
+                    'capex_amount' => '0',
+                    'opex_amount' => number_format($lineCost, 2, '.', ''),
+                    'justification' => 'Routine/Preventive Maintenance - 100% OPEX'
+                ];
+            }
 
             echo '<script>console.log("Analysis result for WO ' . htmlspecialchars($workOrderNum) . ':", ' . json_encode($analysis) . ');</script>';
             flush();
-        } catch (Exception $e) {
-            // Log error but continue processing
-            error_log("Error processing work order $workOrderNum: " . $e->getMessage());
-            echo '<script>console.error("Error processing WO ' . htmlspecialchars($workOrderNum) . ': ' . htmlspecialchars($e->getMessage()) . '");</script>';
+        } else {
+            // Analyze the work order with error handling
+            try {
+                $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
 
-            // Create error result
-            $analysis = [
-                'determination' => 'ERROR',
-                'capex_amount' => 0,
-                'opex_amount' => 0,
-                'capex_tax' => 0,
-                'opex_tax' => 0,
-                'total_capex' => 0,
-                'total_opex' => 0,
-                'justification' => 'Processing error: ' . $e->getMessage(),
-                'category' => '',
-                'line_items' => []
-            ];
+                echo '<script>console.log("Analysis result for WO ' . htmlspecialchars($workOrderNum) . ':", ' . json_encode($analysis) . ');</script>';
+                flush();
+            } catch (Exception $e) {
+                // Log error but continue processing
+                error_log("Error processing work order $workOrderNum: " . $e->getMessage());
+                echo '<script>console.error("Error processing WO ' . htmlspecialchars($workOrderNum) . ': ' . htmlspecialchars($e->getMessage()) . '");</script>';
+
+                // Create error result
+                $analysis = [
+                    'determination' => 'ERROR',
+                    'capex_amount' => 0,
+                    'opex_amount' => 0,
+                    'capex_tax' => 0,
+                    'opex_tax' => 0,
+                    'total_capex' => 0,
+                    'total_opex' => 0,
+                    'justification' => 'Processing error: ' . $e->getMessage(),
+                    'category' => '',
+                    'line_items' => []
+                ];
+            }
         }
 
         // Write each row with its individual analysis
