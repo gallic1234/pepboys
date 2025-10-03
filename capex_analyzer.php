@@ -553,7 +553,7 @@ function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKe
                 'Authorization: Bearer ' . $grokApiKey
             ]);
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-                'model' => 'grok-beta',
+                'model' => 'grok-4-fast-reasoning',
                 'messages' => [
                     ['role' => 'user', 'content' => $prompt]
                 ],
@@ -561,9 +561,6 @@ function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKe
                 'max_tokens' => 2000
             ]));
             curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // For debugging SSL issues
-            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false); // For debugging SSL issues
-            curl_setopt($ch, CURLOPT_VERBOSE, true); // Enable verbose output
         } else {
             echo '<script>console.error("Grok API key is empty!");</script>';
             flush();
@@ -1599,7 +1596,7 @@ CATEGORY RULES:
   * Heater Replacement: HVAC systems, heating units, cooling systems, air handlers, compressors, refrigeration units, ventilation equipment";
 
     $data = [
-        'model' => 'grok-4-fast-non-reasoning',
+        'model' => 'grok-4-fast-reasoning',
         'messages' => [
             [
                 'role' => 'user',
@@ -1745,7 +1742,7 @@ CATEGORY RULES:
   * Heater Replacement: HVAC, heating, cooling, compressors, air handlers, refrigeration";
 
     $data = [
-        'model' => 'grok-4-fast-non-reasoning',
+        'model' => 'grok-4-fast-reasoning',
         'messages' => [
             [
                 'role' => 'user',
