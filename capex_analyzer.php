@@ -328,6 +328,28 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
         // Process batch using multi-curl
         $batchResults = processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
 
+        // Check if all results failed and try fallback to sequential processing
+        $allFailed = true;
+        foreach ($batchResults as $result) {
+            if ($result['determination'] !== 'ERROR') {
+                $allFailed = false;
+                break;
+            }
+        }
+
+        if ($allFailed) {
+            echo '<div class="alert alert-warning">Batch processing failed. Falling back to sequential processing...</div>';
+            flush();
+            // Try sequential processing for this batch
+            foreach ($batch as $workOrderNum => $rows) {
+                try {
+                    $batchResults[$workOrderNum] = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
+                } catch (Exception $e) {
+                    $batchResults[$workOrderNum] = createErrorAnalysis($rows, $columnMap);
+                }
+            }
+        }
+
         // Process results from the batch
         foreach ($batchResults as $workOrderNum => $analysis) {
             $processedCount++;
@@ -472,6 +494,10 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
 }
 
 function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey) {
+    // Debug API key
+    echo '<script>console.log("Grok API Key present: ' . (!empty($grokApiKey) ? 'Yes, length: ' . strlen($grokApiKey) : 'No') . '");</script>';
+    flush();
+
     $multiHandle = curl_multi_init();
     $curlHandles = [];
     $workOrderPrompts = [];
@@ -535,6 +561,12 @@ function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKe
                 'max_tokens' => 2000
             ]));
             curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); // For debugging SSL issues
+            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false); // For debugging SSL issues
+            curl_setopt($ch, CURLOPT_VERBOSE, true); // Enable verbose output
+        } else {
+            echo '<script>console.error("Grok API key is empty!");</script>';
+            flush();
         }
 
         curl_multi_add_handle($multiHandle, $ch);
@@ -542,6 +574,9 @@ function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKe
     }
 
     // Execute all requests simultaneously
+    echo '<script>console.log("Starting batch of ' . count($curlHandles) . ' API requests...");</script>';
+    flush();
+
     $running = null;
     do {
         $status = curl_multi_exec($multiHandle, $running);
@@ -550,23 +585,46 @@ function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKe
         }
     } while ($running && $status == CURLM_OK);
 
+    echo '<script>console.log("Batch API requests completed. Processing responses...");</script>';
+    flush();
+
     // Collect all responses
     $results = [];
     foreach ($curlHandles as $workOrderNum => $ch) {
         $response = curl_multi_getcontent($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 
+        echo '<script>console.log("WO ' . htmlspecialchars($workOrderNum) . ' - HTTP Code: ' . $httpCode . '");</script>';
+        flush();
+
         if ($httpCode == 200 && $response) {
             $data = json_decode($response, true);
             if (isset($data['choices'][0]['message']['content'])) {
                 $aiResponse = $data['choices'][0]['message']['content'];
+                echo '<script>console.log("WO ' . htmlspecialchars($workOrderNum) . ' - API response received successfully");</script>';
+                flush();
                 $results[$workOrderNum] = parseDetailedAIResponse($aiResponse, $batch[$workOrderNum], $columnMap);
             } else {
                 // Error in response format
+                error_log("API Response Error for WO $workOrderNum - Invalid response format: " . substr($response, 0, 500));
+                echo '<script>console.error("API Response Error for WO ' . htmlspecialchars($workOrderNum) . ' - Invalid format. Response: ' . htmlspecialchars(substr($response, 0, 200)) . '");</script>';
+                flush();
                 $results[$workOrderNum] = createErrorAnalysis($batch[$workOrderNum], $columnMap);
             }
+        } else if ($httpCode == 0) {
+            // Connection failed completely
+            $curlError = curl_error($ch);
+            error_log("API Connection Failed for WO $workOrderNum - Error: $curlError");
+            echo '<script>console.error("API Connection Failed for WO ' . htmlspecialchars($workOrderNum) . ' - Error: ' . htmlspecialchars($curlError) . '");</script>';
+            flush();
+            $results[$workOrderNum] = createErrorAnalysis($batch[$workOrderNum], $columnMap);
         } else {
-            // HTTP error or no response
+            // HTTP error
+            $curlError = curl_error($ch);
+            $responseSnippet = $response ? substr($response, 0, 200) : 'No response body';
+            error_log("API Request Failed for WO $workOrderNum - HTTP $httpCode - Error: $curlError - Response: $responseSnippet");
+            echo '<script>console.error("API Request Failed for WO ' . htmlspecialchars($workOrderNum) . ' - HTTP ' . $httpCode . ' - Response: ' . htmlspecialchars($responseSnippet) . '");</script>';
+            flush();
             $results[$workOrderNum] = createErrorAnalysis($batch[$workOrderNum], $columnMap);
         }
 
