@@ -550,7 +550,8 @@ function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKe
             curl_setopt($ch, CURLOPT_POST, true);
             curl_setopt($ch, CURLOPT_HTTPHEADER, [
                 'Content-Type: application/json',
-                'Authorization: Bearer ' . $grokApiKey
+                'Authorization: Bearer ' . $grokApiKey,
+                'Expect: ' // Disable Expect: 100-continue
             ]);
             curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
                 'model' => 'grok-4-fast-reasoning',
@@ -561,6 +562,9 @@ function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKe
                 'max_tokens' => 2000
             ]));
             curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+            curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
         } else {
             echo '<script>console.error("Grok API key is empty!");</script>';
             flush();
@@ -577,10 +581,35 @@ function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKe
     $running = null;
     do {
         $status = curl_multi_exec($multiHandle, $running);
-        if ($running) {
-            curl_multi_select($multiHandle); // Wait for activity on any curl handle
+
+        // If there are still running handles, wait for activity
+        if ($running > 0) {
+            // Wait for activity on any curl connection
+            $select = curl_multi_select($multiHandle, 10.0); // 10 second timeout
+
+            // If select returns -1, there was an error, so we'll sleep briefly
+            if ($select === -1) {
+                usleep(100000); // Sleep for 100ms
+            }
         }
-    } while ($running && $status == CURLM_OK);
+
+    } while ($running > 0 || $status == CURLM_CALL_MULTI_PERFORM);
+
+    // Wait for any remaining transfers to complete and log them
+    while ($info = curl_multi_info_read($multiHandle)) {
+        if ($info['msg'] == CURLMSG_DONE) {
+            $completedHandle = $info['handle'];
+            // Find which work order this handle belongs to
+            foreach ($curlHandles as $wo => $handle) {
+                if ($handle === $completedHandle) {
+                    $code = curl_getinfo($completedHandle, CURLINFO_HTTP_CODE);
+                    echo '<script>console.log("Request completed for WO ' . htmlspecialchars($wo) . ' with HTTP code ' . $code . '");</script>';
+                    flush();
+                    break;
+                }
+            }
+        }
+    }
 
     echo '<script>console.log("Batch API requests completed. Processing responses...");</script>';
     flush();
