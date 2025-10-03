@@ -300,8 +300,7 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
     $processedCount = 0;
     $totalWorkOrders = count($workOrders);
 
-    // Process in batches of 3 using multi-curl (reduced to avoid timeouts)
-    $batchSize = 3;
+    // Process work orders one at a time
     $workOrdersToProcess = [];
 
     // Filter out already processed work orders
@@ -313,56 +312,44 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
         }
     }
 
-    // Process in batches
-    $workOrderBatches = array_chunk($workOrdersToProcess, $batchSize, true);
-    $batchCount = count($workOrderBatches);
-
-    echo '<div class="alert alert-info">Processing ' . count($workOrdersToProcess) . ' work orders in ' . $batchCount . ' batches of up to 3 each...</div>';
+    echo '<div class="alert alert-info">Processing ' . count($workOrdersToProcess) . ' work orders...</div>';
     flush();
 
-    foreach ($workOrderBatches as $batchIndex => $batch) {
-        $currentBatch = $batchIndex + 1;
-        echo '<div class="row-result pending"><strong>Batch ' . $currentBatch . '/' . $batchCount . ':</strong> Processing ' . count($batch) . ' work orders...</div>';
+    foreach ($workOrdersToProcess as $workOrderNum => $rows) {
+        $processedCount++;
+        $progress = round(($processedCount / $totalWorkOrders) * 100);
+
+        echo '<div class="row-result pending">Processing Work Order ' . htmlspecialchars($workOrderNum) . ' (' . $processedCount . '/' . count($workOrdersToProcess) . ')...</div>';
         flush();
 
-        // Process batch using multi-curl
-        $batchResults = processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
-
-        // Check if all results failed and try fallback to sequential processing
-        $allFailed = true;
-        foreach ($batchResults as $result) {
-            if ($result['determination'] !== 'ERROR') {
-                $allFailed = false;
-                break;
-            }
-        }
-
-        if ($allFailed) {
-            echo '<div class="alert alert-warning">Batch processing failed. Falling back to sequential processing...</div>';
-            flush();
-            // Try sequential processing for this batch
-            foreach ($batch as $workOrderNum => $rows) {
-                try {
-                    $batchResults[$workOrderNum] = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
-                } catch (Exception $e) {
-                    $batchResults[$workOrderNum] = createErrorAnalysis($rows, $columnMap);
-                }
-            }
-        }
-
-        // Process results from the batch
-        foreach ($batchResults as $workOrderNum => $analysis) {
-            $processedCount++;
-            $progress = round(($processedCount / $totalWorkOrders) * 100);
+        // Analyze the work order with error handling
+        try {
+            $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
 
             echo '<script>console.log("Analysis result for WO ' . htmlspecialchars($workOrderNum) . ':", ' . json_encode($analysis) . ');</script>';
             flush();
+        } catch (Exception $e) {
+            // Log error but continue processing
+            error_log("Error processing work order $workOrderNum: " . $e->getMessage());
+            echo '<script>console.error("Error processing WO ' . htmlspecialchars($workOrderNum) . ': ' . htmlspecialchars($e->getMessage()) . '");</script>';
 
-            // Get the rows for this work order
-            $rows = $batch[$workOrderNum];
+            // Create error result
+            $analysis = [
+                'determination' => 'ERROR',
+                'capex_amount' => 0,
+                'opex_amount' => 0,
+                'capex_tax' => 0,
+                'opex_tax' => 0,
+                'total_capex' => 0,
+                'total_opex' => 0,
+                'justification' => 'Processing error: ' . $e->getMessage(),
+                'category' => '',
+                'line_items' => []
+            ];
+        }
 
-            // Write each row with its individual analysis
-            foreach ($rows as $rowIndex => $row) {
+        // Write each row with its individual analysis
+        foreach ($rows as $rowIndex => $row) {
             $outputRow = $row;
 
             // Pad to ensure we have all original columns
@@ -458,15 +445,15 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
             'justification' => $analysis['justification']
         ];
 
-            // Track processed work orders
-            $processedWorkOrders[] = $workOrderNum;
-        }
-        // Update progress file after each batch
+        // Track processed work orders
+        $processedWorkOrders[] = $workOrderNum;
+
+        // Update progress file after each work order
         file_put_contents($progressFile, json_encode($processedWorkOrders));
         fflush($output);
 
-        echo '<div class="row-result success"><strong>Batch ' . $currentBatch . '/' . $batchCount . ':</strong> Completed!</div>';
-        flush();
+        // Add small delay to prevent API rate limiting
+        usleep(500000); // 0.5 seconds between requests
     }
 
     fclose($input);
@@ -493,6 +480,8 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
     return true;
 }
 
+// Multi-curl function - no longer used but kept for reference
+/*
 function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey) {
     // Debug API key
     echo '<script>console.log("Grok API Key present: ' . (!empty($grokApiKey) ? 'Yes, length: ' . strlen($grokApiKey) : 'No') . '");</script>';
@@ -673,6 +662,7 @@ function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKe
 
     return $results;
 }
+*/
 
 function getDetailedAnalysisPromptForBatch() {
     return "You are a professional accountant analyzing HVAC work orders for CAPEX vs OPEX determination under ASC 360.
