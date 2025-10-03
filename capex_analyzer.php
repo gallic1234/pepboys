@@ -300,8 +300,8 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
     $processedCount = 0;
     $totalWorkOrders = count($workOrders);
 
-    // Process in batches of 5 using multi-curl
-    $batchSize = 5;
+    // Process in batches of 3 using multi-curl (reduced to avoid timeouts)
+    $batchSize = 3;
     $workOrdersToProcess = [];
 
     // Filter out already processed work orders
@@ -317,7 +317,7 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
     $workOrderBatches = array_chunk($workOrdersToProcess, $batchSize, true);
     $batchCount = count($workOrderBatches);
 
-    echo '<div class="alert alert-info">Processing ' . count($workOrdersToProcess) . ' work orders in ' . $batchCount . ' batches of up to ' . $batchSize . ' each...</div>';
+    echo '<div class="alert alert-info">Processing ' . count($workOrdersToProcess) . ' work orders in ' . $batchCount . ' batches of up to 3 each...</div>';
     flush();
 
     foreach ($workOrderBatches as $batchIndex => $batch) {
@@ -561,8 +561,8 @@ function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKe
                 'temperature' => 0.1,
                 'max_tokens' => 2000
             ]));
-            curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 60); // Increase timeout to 60 seconds
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 15); // Increase connection timeout to 15 seconds
             curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
             curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
         } else {
@@ -638,12 +638,23 @@ function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKe
                 $results[$workOrderNum] = createErrorAnalysis($batch[$workOrderNum], $columnMap);
             }
         } else if ($httpCode == 0) {
-            // Connection failed completely
+            // Connection failed completely - try a single retry
             $curlError = curl_error($ch);
             error_log("API Connection Failed for WO $workOrderNum - Error: $curlError");
-            echo '<script>console.error("API Connection Failed for WO ' . htmlspecialchars($workOrderNum) . ' - Error: ' . htmlspecialchars($curlError) . '");</script>';
+            echo '<script>console.error("API Connection Failed for WO ' . htmlspecialchars($workOrderNum) . ' - Error: ' . htmlspecialchars($curlError) . '. Attempting retry...");</script>';
             flush();
-            $results[$workOrderNum] = createErrorAnalysis($batch[$workOrderNum], $columnMap);
+
+            // Try a single synchronous retry for this specific request
+            $retryResult = retrySingleRequest($workOrderNum, $batch[$workOrderNum], $columnMap, $grokApiKey);
+            if ($retryResult !== false) {
+                echo '<script>console.log("Retry successful for WO ' . htmlspecialchars($workOrderNum) . '");</script>';
+                flush();
+                $results[$workOrderNum] = $retryResult;
+            } else {
+                echo '<script>console.error("Retry also failed for WO ' . htmlspecialchars($workOrderNum) . '");</script>';
+                flush();
+                $results[$workOrderNum] = createErrorAnalysis($batch[$workOrderNum], $columnMap);
+            }
         } else {
             // HTTP error
             $curlError = curl_error($ch);
@@ -719,6 +730,65 @@ CATEGORY: [If CAPEX or MIXED: Controls/Automation OR Infrastructure/Utility OR H
 CAPEX_AMOUNT: [dollar amount without tax]
 OPEX_AMOUNT: [dollar amount without tax]
 JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]";
+}
+
+function retrySingleRequest($workOrderNum, $rows, $columnMap, $grokApiKey) {
+    // Build prompt for this work order
+    $descriptions = [];
+    foreach ($rows as $row) {
+        $description = isset($columnMap['description']) ? trim($row[$columnMap['description']] ?? '') : '';
+        $unitCost = isset($columnMap['unit_cost']) ?
+                   floatval(str_replace(['$', ','], '', $row[$columnMap['unit_cost']])) : 0;
+        $quantity = isset($columnMap['quantity']) ?
+                   floatval($row[$columnMap['quantity']]) : 1;
+        $lineCost = isset($columnMap['line_cost']) ?
+                   floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']])) : 0;
+
+        if ($lineCost == 0 && $unitCost > 0) {
+            $lineCost = $unitCost * $quantity;
+        }
+
+        $descriptions[] = "- Item: $description, Unit Cost: \$$unitCost, Quantity: $quantity, Line Cost: \$$lineCost";
+    }
+
+    $prompt = getDetailedAnalysisPromptForBatch();
+    $prompt .= "\n\nWork Order Details:\n" . implode("\n", $descriptions);
+
+    // Make a single synchronous request
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, 'https://api.x.ai/v1/chat/completions');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json',
+        'Authorization: Bearer ' . $grokApiKey,
+        'Expect: '
+    ]);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
+        'model' => 'grok-4-fast-reasoning',
+        'messages' => [
+            ['role' => 'user', 'content' => $prompt]
+        ],
+        'temperature' => 0.1,
+        'max_tokens' => 2000
+    ]));
+    curl_setopt($ch, CURLOPT_TIMEOUT, 90); // Even longer timeout for retry
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 20);
+    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+    curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
+
+    $response = curl_exec($ch);
+    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode == 200 && $response) {
+        $data = json_decode($response, true);
+        if (isset($data['choices'][0]['message']['content'])) {
+            return parseDetailedAIResponse($data['choices'][0]['message']['content'], $rows, $columnMap);
+        }
+    }
+
+    return false;
 }
 
 function createErrorAnalysis($rows, $columnMap) {
