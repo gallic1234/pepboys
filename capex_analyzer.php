@@ -1493,7 +1493,7 @@ CATEGORY RULES:
     $apiInfo = [
         'endpoint' => 'https://api.x.ai/v1/chat/completions',
         'model' => $data['model'],
-        'api_key_prefix' => substr($apiKey, 0, 20) . '...',
+        'api_key' => $apiKey,
         'prompt' => $prompt,
         'temperature' => $data['temperature']
     ];
