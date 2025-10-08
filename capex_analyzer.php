@@ -35,10 +35,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
             // Debug: Output API key status
             console.log("=== API Key Check at Start ===");
             console.log("config.php file exists: <?php echo file_exists(__DIR__ . '/config.php') ? 'YES' : 'NO'; ?>");
+            console.log("All defined constants:", <?php echo json_encode(array_filter(get_defined_constants(true)['user'], function($k) { return strpos($k, 'GROK') !== false || strpos($k, 'API') !== false; }, ARRAY_FILTER_USE_KEY)); ?>);
             console.log("GROK_API_KEY defined: <?php echo (defined('GROK_API_KEY') ? 'YES' : 'NO'); ?>");
             console.log("GROK_API_KEY value: <?php echo (defined('GROK_API_KEY') ? GROK_API_KEY : 'NOT DEFINED'); ?>");
             console.log("$grokApiKey variable: <?php echo ($grokApiKey ? $grokApiKey : 'EMPTY/FALSE'); ?>");
             console.log("GROK_API_KEYS defined: <?php echo (defined('GROK_API_KEYS') ? 'YES' : 'NO'); ?>");
+            console.log("First GROK_API_KEYS element: <?php echo (defined('GROK_API_KEYS') ? GROK_API_KEYS[0] : 'N/A'); ?>");
         </script>
         <style>
             .processing-container {
