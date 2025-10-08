@@ -628,10 +628,9 @@ function processBatchParallel($batch, $columnMap, $geminiApiKey, $grokApiKey, $o
             model: "grok-4-fast",
             key_index: ' . ($keyIndex - 1) . ',
             total_keys: ' . count($apiKeys) . ',
-            authorization_header: "Bearer ' . $apiKey . '",
+            authorization: "-H \"Authorization: Bearer ' . $apiKey . '\"",
             api_key_last_6: "' . substr($apiKey, -6) . '",
-            temperature: 0.3,
-            note: "API key is in Authorization header, not request body"
+            temperature: 0.3
         });</script>';
         flush();
 
@@ -1521,10 +1520,9 @@ CATEGORY RULES:
     $apiInfo = [
         'endpoint' => 'https://api.x.ai/v1/chat/completions',
         'model' => $data['model'],
-        'authorization_header' => 'Bearer ' . $apiKey,
+        'authorization' => '-H "Authorization: Bearer ' . $apiKey . '"',
         'api_key_last_6' => substr($apiKey, -6),
-        'temperature' => $data['temperature'],
-        'note' => 'API key is in Authorization header, not request body'
+        'temperature' => $data['temperature']
     ];
     echo '<script>console.log("=== API Request ===\\n", ' . json_encode($apiInfo, JSON_PRETTY_PRINT) . ');</script>';
     flush();
