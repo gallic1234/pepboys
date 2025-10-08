@@ -134,10 +134,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     if (isset($_SESSION['results_file']) && file_exists($_SESSION['results_file'])) {
         echo '✅ Complete file saved: <code>' . htmlspecialchars(basename($_SESSION['results_file'])) . '</code><br>';
         echo '<small>Location: ' . htmlspecialchars(dirname($_SESSION['results_file'])) . '</small>';
-    } else {
-        echo '⚠️ Incomplete file saved: <code>' . htmlspecialchars($outputFilename) . '</code><br>';
-        echo '<small>Location: ' . htmlspecialchars($outputDir) . '</small><br>';
-        echo '<small class="text-warning">File saved in "unfinished" folder due to incomplete processing.</small>';
     }
     echo '</div>';
 
@@ -147,29 +143,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
                 <a href="?download=1" class="btn btn-success">📥 Download Results CSV</a>
                 <a href="<?php echo $_SERVER['PHP_SELF']; ?>" class="btn btn-secondary">🔄 Analyze Another File</a>
                 <?php
-                // Show recovery option if there are incomplete files
-                $recoveryDir = __DIR__ . '/unfinished';
-                if (is_dir($recoveryDir)) {
-                    $progressFiles = glob($recoveryDir . '/*.progress');
-                    if (!empty($progressFiles)) {
-                        echo '<div class="alert alert-warning mt-3">';
-                        echo '<strong>Incomplete Analysis Found!</strong><br>';
-                        echo 'Found ' . count($progressFiles) . ' incomplete analysis file(s). ';
-                        echo 'The partial results have been saved and can be downloaded.';
-                        echo '</div>';
-                    }
-                }
                 ?>
             </div>
         </div>
         <script>
-            // Hide the processing message and show completion
+            // Automatically redirect to download page when analysis is complete
             setTimeout(function() {
-                var alertDiv = document.querySelector('.alert-info');
-                if (alertDiv) {
-                    alertDiv.className = 'alert alert-success mb-3';
-                    alertDiv.innerHTML = '<strong>✅ Analysis Complete!</strong> All work orders have been processed.';
-                }
+                window.location.href = '?download=1';
             }, 500);
         </script>
     </body>
@@ -317,15 +297,9 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
         }
     }
 
-    echo '<div class="alert alert-info">Processing ' . count($workOrdersToProcess) . ' work orders...</div>';
-    flush();
-
     foreach ($workOrdersToProcess as $workOrderNum => $rows) {
         $processedCount++;
         $progress = round(($processedCount / $totalWorkOrders) * 100);
-
-        echo '<div class="row-result pending">Processing Work Order ' . htmlspecialchars($workOrderNum) . ' (' . $processedCount . '/' . count($workOrdersToProcess) . ')...</div>';
-        flush();
 
         // Check if all rows are maintenance/preventive based on request code
         $allMaintenance = true;
