@@ -68,13 +68,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     <body>
         <div class="processing-container">
             <h2>Analyzing Work Orders</h2>
-            <div class="alert alert-info mb-3">
-                <div class="d-flex align-items-center">
-                    <div class="spinner-border text-primary me-3" role="status">
-                        <span class="visually-hidden">Processing...</span>
-                    </div>
-                </div>
-            </div>
             <div class="results-container" id="results">
     <?php
     flush();
