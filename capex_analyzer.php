@@ -9,12 +9,13 @@ $grokApiKey = defined('GROK_API_KEY') ? GROK_API_KEY : getenv('GROK_API_KEY');
 $geminiApiKey = '';
 $openaiApiKey = '';
 
-// Debug: Output API key status at the very start
-if (isset($_POST)) {
-    echo '<script>console.log("=== API Key Loaded at Start ===\\nGrok API Key: ' . ($grokApiKey ? $grokApiKey : 'NOT FOUND') . '");</script>';
-}
-
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
+    // Debug: Output API key status at the very start
+    echo '<script>console.log("=== API Key Check at Start ===");</script>';
+    echo '<script>console.log("GROK_API_KEY defined: ' . (defined('GROK_API_KEY') ? 'YES' : 'NO') . '");</script>';
+    echo '<script>console.log("GROK_API_KEY value: ' . (defined('GROK_API_KEY') ? GROK_API_KEY : 'NOT DEFINED') . '");</script>';
+    echo '<script>console.log("$grokApiKey variable: ' . ($grokApiKey ? $grokApiKey : 'EMPTY/FALSE') . '");</script>';
+    flush();
     // Disable output buffering for real-time updates
     @ob_end_clean();
     header('Content-Type: text/html; charset=utf-8');
