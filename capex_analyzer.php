@@ -287,6 +287,13 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
         $processedCount++;
         $progress = round(($processedCount / $totalWorkOrders) * 100);
 
+        // Display work order being processed
+        echo '<div class="alert alert-info" style="margin: 10px 0; padding: 15px; border-left: 4px solid #0dcaf0;">';
+        echo '<strong>📋 Processing Work Order: ' . htmlspecialchars($workOrderNum) . '</strong>';
+        echo '<span style="float: right; color: #6c757d;">(' . $processedCount . ' of ' . $totalWorkOrders . ')</span>';
+        echo '</div>';
+        flush();
+
         // Check if all rows are maintenance/preventive based on request code
         $allMaintenance = true;
         $maintenanceTotal = 0;
@@ -370,6 +377,41 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
                 ];
             }
         }
+
+        // Display results after analysis
+        $badgeClass = 'bg-secondary';
+        $badgeText = $analysis['determination'];
+        if ($analysis['determination'] === 'CAPEX') {
+            $badgeClass = 'bg-success';
+        } elseif ($analysis['determination'] === 'OPEX') {
+            $badgeClass = 'bg-danger';
+        } elseif ($analysis['determination'] === 'MIXED') {
+            $badgeClass = 'bg-warning text-dark';
+        } elseif ($analysis['determination'] === 'ERROR') {
+            $badgeClass = 'bg-secondary';
+        }
+
+        echo '<div class="alert alert-light" style="margin: 10px 0; padding: 15px; border-left: 4px solid #28a745; background-color: #f8f9fa;">';
+        echo '<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">';
+        echo '<strong>✅ Work Order: ' . htmlspecialchars($workOrderNum) . '</strong>';
+        echo '<span class="badge ' . $badgeClass . '" style="font-size: 1em; padding: 8px 12px;">' . htmlspecialchars($badgeText) . '</span>';
+        echo '</div>';
+        echo '<div style="margin: 10px 0;">';
+        echo '<strong style="color: #28a745;">CAPEX Total (with tax): $' . number_format($analysis['total_capex'], 2) . '</strong>';
+        echo ' | ';
+        echo '<strong style="color: #dc3545;">OPEX Total (with tax): $' . number_format($analysis['total_opex'], 2) . '</strong>';
+        echo '</div>';
+        if (!empty($analysis['category']) && $analysis['category'] !== 'N/A') {
+            echo '<div style="margin: 5px 0; color: #6c757d;"><strong>Category:</strong> ' . htmlspecialchars($analysis['category']) . '</div>';
+        }
+        echo '<div style="margin-top: 10px; padding: 10px; background-color: white; border-radius: 4px; font-size: 0.9em;">';
+        echo '<strong>Justification:</strong> ' . htmlspecialchars(substr($analysis['justification'], 0, 300));
+        if (strlen($analysis['justification']) > 300) {
+            echo '...';
+        }
+        echo '</div>';
+        echo '</div>';
+        flush();
 
         // Write each row with its individual analysis
         foreach ($rows as $rowIndex => $row) {
