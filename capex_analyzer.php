@@ -639,9 +639,10 @@ function processBatchParallel($batch, $columnMap, $geminiApiKey, $grokApiKey, $o
             model: "grok-4-fast",
             key_index: ' . ($keyIndex - 1) . ',
             total_keys: ' . count($apiKeys) . ',
-            api_key: "' . $apiKey . '",
+            authorization_header: "Bearer ' . $apiKey . '",
             api_key_last_6: "' . substr($apiKey, -6) . '",
-            temperature: 0.3
+            temperature: 0.3,
+            note: "API key is in Authorization header, not request body"
         });</script>';
         flush();
 
