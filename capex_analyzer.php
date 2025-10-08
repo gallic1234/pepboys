@@ -445,33 +445,6 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
             $borderClass = 'mixed';
         }
 
-        // Create the result display
-        echo '<div class="row-result ' . $borderClass . '" style="display: none;" id="wo-' . htmlspecialchars($workOrderNum) . '">';
-        echo '<div style="margin-bottom: 10px;">';
-        echo '<strong style="font-size: 1.1em;">Work Order: ' . htmlspecialchars($workOrderNum) . '</strong>';
-        echo '</div>';
-        echo '<div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">';
-        echo '<span class="badge ' . $badgeClass . '" style="font-size: 1em;">' . $analysis['determination'] . '</span>';
-        echo '<div style="font-weight: bold;">';
-        echo '<span style="color: #28a745; font-size: 1.2em;">CAPEX Total (incl. tax): $' . number_format($analysis['total_capex'], 2) . '</span>';
-        echo '</div>';
-        echo '</div>';
-        echo '<div style="border-left: 3px solid #6c757d; padding-left: 10px; margin-top: 10px;">';
-        echo '<strong>Justification:</strong> ' . htmlspecialchars($analysis['justification']);
-        echo '</div>';
-        echo '<div style="margin-top: 10px; font-size: 0.9em; color: #6c757d;">';
-        echo '<span>Base CAPEX: $' . number_format($analysis['capex_amount'], 2) . ' + Tax: $' . number_format($analysis['capex_tax'], 2) . '</span> | ';
-        echo '<span>OPEX Total: $' . number_format($analysis['total_opex'], 2) . '</span> | ';
-        echo '<span>Grand Total: $' . number_format($analysis['total_capex'] + $analysis['total_opex'], 2) . '</span>';
-        echo '</div>';
-        echo '</div>';
-
-        echo '<script>
-            setTimeout(function() {
-                document.getElementById("wo-' . htmlspecialchars($workOrderNum) . '").style.display = "block";
-            }, 100);
-        </script>';
-        flush();
 
         $_SESSION['processed_rows'][] = [
             'work_order' => $workOrderNum,
