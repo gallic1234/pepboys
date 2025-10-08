@@ -68,17 +68,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     <body>
         <div class="processing-container">
             <h2>Analyzing Work Orders</h2>
-            <div class="alert alert-info mb-3">
-                <div class="d-flex align-items-center">
-                    <div class="spinner-border text-primary me-3" role="status">
-                        <span class="visually-hidden">Processing...</span>
-                    </div>
-                    <div>
-                        <strong>Processing your CSV file...</strong>
-                        <p class="mb-0 mt-1" id="statusText">Analyzing work orders and calculating CAPEX/OPEX allocations.</p>
-                    </div>
-                </div>
-            </div>
             <div class="results-container" id="results">
     <?php
     flush();
@@ -128,17 +117,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     $_SESSION['original_filename'] = pathinfo($uploadedFile['name'], PATHINFO_FILENAME);
     $_SESSION['processing_complete'] = true;
 
-    // Display file location
-    echo '<div class="alert alert-info mt-3">';
-    echo '<strong>Processing Status:</strong><br>';
-    if (isset($_SESSION['results_file']) && file_exists($_SESSION['results_file'])) {
-        echo '✅ Complete file saved: <code>' . htmlspecialchars(basename($_SESSION['results_file'])) . '</code><br>';
-        echo '<small>Location: ' . htmlspecialchars(dirname($_SESSION['results_file'])) . '</small>';
-    } else {
-        echo '⚠️ Incomplete file saved: <code>' . htmlspecialchars($outputFilename) . '</code><br>';
-        echo '<small>Location: ' . htmlspecialchars($outputDir) . '</small><br>';
-        echo '<small class="text-warning">File saved in "unfinished" folder due to incomplete processing.</small>';
-    }
+    // Display completion message
+    echo '<div class="alert alert-success mt-3">';
+    echo '<strong>✅ The file has been analyzed.</strong>';
     echo '</div>';
 
     ?>
@@ -147,31 +128,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
                 <a href="?download=1" class="btn btn-success">📥 Download Results CSV</a>
                 <a href="<?php echo $_SERVER['PHP_SELF']; ?>" class="btn btn-secondary">🔄 Analyze Another File</a>
                 <?php
-                // Show recovery option if there are incomplete files
-                $recoveryDir = __DIR__ . '/unfinished';
-                if (is_dir($recoveryDir)) {
-                    $progressFiles = glob($recoveryDir . '/*.progress');
-                    if (!empty($progressFiles)) {
-                        echo '<div class="alert alert-warning mt-3">';
-                        echo '<strong>Incomplete Analysis Found!</strong><br>';
-                        echo 'Found ' . count($progressFiles) . ' incomplete analysis file(s). ';
-                        echo 'The partial results have been saved and can be downloaded.';
-                        echo '</div>';
-                    }
-                }
                 ?>
             </div>
         </div>
-        <script>
-            // Hide the processing message and show completion
-            setTimeout(function() {
-                var alertDiv = document.querySelector('.alert-info');
-                if (alertDiv) {
-                    alertDiv.className = 'alert alert-success mb-3';
-                    alertDiv.innerHTML = '<strong>✅ Analysis Complete!</strong> All work orders have been processed.';
-                }
-            }, 500);
-        </script>
     </body>
     </html>
     <?php
@@ -219,7 +178,6 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
 
     // Find important column indices
     $columnMap = [];
-    echo '<script>console.log("CSV Headers:", ' . json_encode($headers) . ');</script>';
     foreach ($headers as $index => $header) {
         $headerLower = strtolower(trim($header));
 
@@ -265,7 +223,6 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
             $columnMap['pepboys_invoice'] = $index;
         }
     }
-    echo '<script>console.log("Column mapping:", ' . json_encode($columnMap) . ');</script>';
     flush();
 
     // Add new columns to headers for line-by-line analysis
@@ -313,65 +270,69 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
         if (!in_array($workOrderNum, $processedWorkOrders)) {
             $workOrdersToProcess[$workOrderNum] = $rows;
         } else {
-            echo '<script>console.log("Skipping already processed work order: ' . htmlspecialchars($workOrderNum) . '");</script>';
         }
     }
 
-    echo '<div class="alert alert-info">Processing ' . count($workOrdersToProcess) . ' work orders...</div>';
-    flush();
+    // Process work orders in batches of 5
+    $batchSize = 5;
+    $workOrderArray = array_keys($workOrdersToProcess);
+    $totalBatches = ceil(count($workOrderArray) / $batchSize);
 
-    foreach ($workOrdersToProcess as $workOrderNum => $rows) {
-        $processedCount++;
-        $progress = round(($processedCount / $totalWorkOrders) * 100);
+    for ($batchNum = 0; $batchNum < $totalBatches; $batchNum++) {
+        $batchStart = $batchNum * $batchSize;
+        $batchWorkOrders = array_slice($workOrderArray, $batchStart, $batchSize, true);
 
-        echo '<div class="row-result pending">Processing Work Order ' . htmlspecialchars($workOrderNum) . ' (' . $processedCount . '/' . count($workOrdersToProcess) . ')...</div>';
+        // Prepare batch data
+        $batch = [];
+        foreach ($batchWorkOrders as $workOrderNum) {
+            $batch[$workOrderNum] = $workOrdersToProcess[$workOrderNum];
+        }
+
+        // Display batch processing message
+        echo '<div class="alert alert-primary" style="margin: 15px 0; padding: 15px; border-left: 4px solid #0d6efd;">';
+        echo '<strong>⚡ Processing Batch ' . ($batchNum + 1) . ' of ' . $totalBatches . '</strong>';
+        echo '<span style="float: right;">Work Orders: ' . implode(', ', array_keys($batch)) . '</span>';
+        echo '</div>';
         flush();
 
-        // Check if all rows are maintenance/preventive based on request code OR column D
+        // Process batch in parallel - but handle each WO individually for output
+        foreach ($batch as $workOrderNum => $rows) {
+            $processedCount++;
+            $progress = round(($processedCount / $totalWorkOrders) * 100);
+
+            // Display work order being processed
+            echo '<div class="alert alert-info" style="margin: 10px 0; padding: 15px; border-left: 4px solid #0dcaf0;">';
+            echo '<strong>📋 Processing Work Order: ' . htmlspecialchars($workOrderNum) . '</strong>';
+            echo '<span style="float: right; color: #6c757d;">(' . $processedCount . ' of ' . $totalWorkOrders . ')</span>';
+            echo '</div>';
+            flush();
+
+            // Check if all rows are maintenance/preventive based on request code
         $allMaintenance = true;
         $maintenanceTotal = 0;
         $maintenanceTax = 0;
 
-        foreach ($rows as $row) {
-            $isMaintenance = false;
-
-            // Check request_code column if it exists
-            if (isset($columnMap['request_code'])) {
+        if (isset($columnMap['request_code'])) {
+            foreach ($rows as $row) {
                 $requestCode = isset($row[$columnMap['request_code']]) ? strtoupper(trim($row[$columnMap['request_code']])) : '';
-                if (strpos($requestCode, 'MAINTENANCE') !== false || strpos($requestCode, 'PREVENTIVE') !== false) {
-                    $isMaintenance = true;
+                if (strpos($requestCode, 'MAINTENANCE') === false && strpos($requestCode, 'PREVENTIVE') === false) {
+                    $allMaintenance = false;
+                    break;
+                }
+                // Calculate totals for maintenance items
+                if (isset($columnMap['line_cost'])) {
+                    $maintenanceTotal += floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']]));
                 }
             }
 
-            // Check column D (index 3) for "preventative maintenance"
-            if (isset($row[3])) {
-                $columnD = strtoupper(trim($row[3]));
-                if (strpos($columnD, 'PREVENTATIVE') !== false || strpos($columnD, 'PREVENTIVE') !== false) {
-                    if (strpos($columnD, 'MAINTENANCE') !== false || strpos($columnD, 'MAINT') !== false) {
-                        $isMaintenance = true;
-                    }
-                }
+            // Get tax for maintenance items
+            if ($allMaintenance && isset($columnMap['pepboys_tax']) && count($rows) > 0) {
+                $maintenanceTax = floatval(str_replace(['$', ','], '', $rows[0][$columnMap['pepboys_tax']]));
             }
-
-            if (!$isMaintenance) {
-                $allMaintenance = false;
-                break;
-            }
-
-            // Calculate totals for maintenance items
-            if (isset($columnMap['line_cost'])) {
-                $maintenanceTotal += floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']]));
-            }
-        }
-
-        // Get tax for maintenance items
-        if ($allMaintenance && isset($columnMap['pepboys_tax']) && count($rows) > 0) {
-            $maintenanceTax = floatval(str_replace(['$', ','], '', $rows[0][$columnMap['pepboys_tax']]));
         }
 
         // If all lines are maintenance, skip API call and create OPEX result directly
         if ($allMaintenance) {
-            echo '<script>console.log("WO ' . htmlspecialchars($workOrderNum) . ' - All lines are maintenance/preventive. Skipping API call.");</script>';
             flush();
 
             $analysis = [
@@ -399,19 +360,16 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
                 ];
             }
 
-            echo '<script>console.log("Analysis result for WO ' . htmlspecialchars($workOrderNum) . ':", ' . json_encode($analysis) . ');</script>';
             flush();
         } else {
             // Analyze the work order with error handling
             try {
                 $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
 
-                echo '<script>console.log("Analysis result for WO ' . htmlspecialchars($workOrderNum) . ':", ' . json_encode($analysis) . ');</script>';
                 flush();
             } catch (Exception $e) {
                 // Log error but continue processing
                 error_log("Error processing work order $workOrderNum: " . $e->getMessage());
-                echo '<script>console.error("Error processing WO ' . htmlspecialchars($workOrderNum) . ': ' . htmlspecialchars($e->getMessage()) . '");</script>';
 
                 // Create error result
                 $analysis = [
@@ -428,6 +386,41 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
                 ];
             }
         }
+
+        // Display results after analysis
+        $badgeClass = 'bg-secondary';
+        $badgeText = $analysis['determination'];
+        if ($analysis['determination'] === 'CAPEX') {
+            $badgeClass = 'bg-success';
+        } elseif ($analysis['determination'] === 'OPEX') {
+            $badgeClass = 'bg-danger';
+        } elseif ($analysis['determination'] === 'MIXED') {
+            $badgeClass = 'bg-warning text-dark';
+        } elseif ($analysis['determination'] === 'ERROR') {
+            $badgeClass = 'bg-secondary';
+        }
+
+        echo '<div class="alert alert-light" style="margin: 10px 0; padding: 15px; border-left: 4px solid #28a745; background-color: #f8f9fa;">';
+        echo '<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">';
+        echo '<strong>✅ Work Order: ' . htmlspecialchars($workOrderNum) . '</strong>';
+        echo '<span class="badge ' . $badgeClass . '" style="font-size: 1em; padding: 8px 12px;">' . htmlspecialchars($badgeText) . '</span>';
+        echo '</div>';
+        echo '<div style="margin: 10px 0;">';
+        echo '<strong style="color: #28a745;">CAPEX Total (with tax): $' . number_format($analysis['total_capex'], 2) . '</strong>';
+        echo ' | ';
+        echo '<strong style="color: #dc3545;">OPEX Total (with tax): $' . number_format($analysis['total_opex'], 2) . '</strong>';
+        echo '</div>';
+        if (!empty($analysis['category']) && $analysis['category'] !== 'N/A') {
+            echo '<div style="margin: 5px 0; color: #6c757d;"><strong>Category:</strong> ' . htmlspecialchars($analysis['category']) . '</div>';
+        }
+        echo '<div style="margin-top: 10px; padding: 10px; background-color: white; border-radius: 4px; font-size: 0.9em;">';
+        echo '<strong>Justification:</strong> ' . htmlspecialchars(substr($analysis['justification'], 0, 300));
+        if (strlen($analysis['justification']) > 300) {
+            echo '...';
+        }
+        echo '</div>';
+        echo '</div>';
+        flush();
 
         // Write each row with its individual analysis
         foreach ($rows as $rowIndex => $row) {
@@ -489,33 +482,6 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
             $borderClass = 'mixed';
         }
 
-        // Create the result display
-        echo '<div class="row-result ' . $borderClass . '" style="display: none;" id="wo-' . htmlspecialchars($workOrderNum) . '">';
-        echo '<div style="margin-bottom: 10px;">';
-        echo '<strong style="font-size: 1.1em;">Work Order: ' . htmlspecialchars($workOrderNum) . '</strong>';
-        echo '</div>';
-        echo '<div style="display: flex; align-items: center; gap: 15px; margin-bottom: 10px;">';
-        echo '<span class="badge ' . $badgeClass . '" style="font-size: 1em;">' . $analysis['determination'] . '</span>';
-        echo '<div style="font-weight: bold;">';
-        echo '<span style="color: #28a745; font-size: 1.2em;">CAPEX Total (incl. tax): $' . number_format($analysis['total_capex'], 2) . '</span>';
-        echo '</div>';
-        echo '</div>';
-        echo '<div style="border-left: 3px solid #6c757d; padding-left: 10px; margin-top: 10px;">';
-        echo '<strong>Justification:</strong> ' . htmlspecialchars($analysis['justification']);
-        echo '</div>';
-        echo '<div style="margin-top: 10px; font-size: 0.9em; color: #6c757d;">';
-        echo '<span>Base CAPEX: $' . number_format($analysis['capex_amount'], 2) . ' + Tax: $' . number_format($analysis['capex_tax'], 2) . '</span> | ';
-        echo '<span>OPEX Total: $' . number_format($analysis['total_opex'], 2) . '</span> | ';
-        echo '<span>Grand Total: $' . number_format($analysis['total_capex'] + $analysis['total_opex'], 2) . '</span>';
-        echo '</div>';
-        echo '</div>';
-
-        echo '<script>
-            setTimeout(function() {
-                document.getElementById("wo-' . htmlspecialchars($workOrderNum) . '").style.display = "block";
-            }, 100);
-        </script>';
-        flush();
 
         $_SESSION['processed_rows'][] = [
             'work_order' => $workOrderNum,
@@ -535,6 +501,7 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
 
         // Add small delay to prevent API rate limiting
         usleep(500000); // 0.5 seconds between requests
+        }
     }
 
     fclose($input);
@@ -561,189 +528,6 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
     return true;
 }
 
-// Multi-curl function - no longer used but kept for reference
-/*
-function processBatchWithMultiCurl($batch, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey) {
-    // Debug API key
-    echo '<script>console.log("Grok API Key present: ' . (!empty($grokApiKey) ? 'Yes, length: ' . strlen($grokApiKey) : 'No') . '");</script>';
-    flush();
-
-    $multiHandle = curl_multi_init();
-    $curlHandles = [];
-    $workOrderPrompts = [];
-
-    // Prepare all prompts and curl handles
-    foreach ($batch as $workOrderNum => $rows) {
-        // Build prompt for this work order
-        $descriptions = [];
-        $lineItems = [];
-
-        foreach ($rows as $row) {
-            $description = '';
-            if (isset($columnMap['description'])) {
-                $description = trim($row[$columnMap['description']] ?? '');
-            }
-
-            $unitCost = isset($columnMap['unit_cost']) ?
-                       floatval(str_replace(['$', ','], '', $row[$columnMap['unit_cost']])) : 0;
-            $quantity = isset($columnMap['quantity']) ?
-                       floatval($row[$columnMap['quantity']]) : 1;
-            $lineCost = isset($columnMap['line_cost']) ?
-                       floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']])) : 0;
-
-            if ($lineCost == 0 && $unitCost > 0) {
-                $lineCost = $unitCost * $quantity;
-            }
-
-            $descriptions[] = "- Item: $description, Unit Cost: \$$unitCost, Quantity: $quantity, Line Cost: \$$lineCost";
-            $lineItems[] = [
-                'description' => $description,
-                'unit_cost' => $unitCost,
-                'quantity' => $quantity,
-                'line_cost' => $lineCost
-            ];
-        }
-
-        $workOrderPrompts[$workOrderNum] = $lineItems;
-
-        // Create prompt
-        $prompt = getDetailedAnalysisPromptForBatch();
-        $prompt .= "\n\nWork Order Details:\n" . implode("\n", $descriptions);
-
-        // Create curl handle for this work order
-        $ch = curl_init();
-
-        // Try Grok API
-        if (!empty($grokApiKey)) {
-            curl_setopt($ch, CURLOPT_URL, 'https://api.x.ai/v1/chat/completions');
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_POST, true);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, [
-                'Content-Type: application/json',
-                'Authorization: Bearer ' . $grokApiKey,
-                'Expect: ' // Disable Expect: 100-continue
-            ]);
-            curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-                'model' => 'grok-4-fast-reasoning',
-                'messages' => [
-                    ['role' => 'user', 'content' => $prompt]
-                ],
-                'temperature' => 0.1,
-                'max_tokens' => 2000
-            ]));
-            curl_setopt($ch, CURLOPT_TIMEOUT, 60); // Increase timeout to 60 seconds
-            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 15); // Increase connection timeout to 15 seconds
-            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-            curl_setopt($ch, CURLOPT_HTTP_VERSION, CURL_HTTP_VERSION_1_1);
-        } else {
-            echo '<script>console.error("Grok API key is empty!");</script>';
-            flush();
-        }
-
-        curl_multi_add_handle($multiHandle, $ch);
-        $curlHandles[$workOrderNum] = $ch;
-    }
-
-    // Execute all requests simultaneously
-    echo '<script>console.log("Starting batch of ' . count($curlHandles) . ' API requests...");</script>';
-    flush();
-
-    $running = null;
-    do {
-        $status = curl_multi_exec($multiHandle, $running);
-
-        // If there are still running handles, wait for activity
-        if ($running > 0) {
-            // Wait for activity on any curl connection
-            $select = curl_multi_select($multiHandle, 10.0); // 10 second timeout
-
-            // If select returns -1, there was an error, so we'll sleep briefly
-            if ($select === -1) {
-                usleep(100000); // Sleep for 100ms
-            }
-        }
-
-    } while ($running > 0 || $status == CURLM_CALL_MULTI_PERFORM);
-
-    // Wait for any remaining transfers to complete and log them
-    while ($info = curl_multi_info_read($multiHandle)) {
-        if ($info['msg'] == CURLMSG_DONE) {
-            $completedHandle = $info['handle'];
-            // Find which work order this handle belongs to
-            foreach ($curlHandles as $wo => $handle) {
-                if ($handle === $completedHandle) {
-                    $code = curl_getinfo($completedHandle, CURLINFO_HTTP_CODE);
-                    echo '<script>console.log("Request completed for WO ' . htmlspecialchars($wo) . ' with HTTP code ' . $code . '");</script>';
-                    flush();
-                    break;
-                }
-            }
-        }
-    }
-
-    echo '<script>console.log("Batch API requests completed. Processing responses...");</script>';
-    flush();
-
-    // Collect all responses
-    $results = [];
-    foreach ($curlHandles as $workOrderNum => $ch) {
-        $response = curl_multi_getcontent($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-
-        echo '<script>console.log("WO ' . htmlspecialchars($workOrderNum) . ' - HTTP Code: ' . $httpCode . '");</script>';
-        flush();
-
-        if ($httpCode == 200 && $response) {
-            $data = json_decode($response, true);
-            if (isset($data['choices'][0]['message']['content'])) {
-                $aiResponse = $data['choices'][0]['message']['content'];
-                echo '<script>console.log("WO ' . htmlspecialchars($workOrderNum) . ' - API response received successfully");</script>';
-                flush();
-                $results[$workOrderNum] = parseDetailedAIResponse($aiResponse, $batch[$workOrderNum], $columnMap);
-            } else {
-                // Error in response format
-                error_log("API Response Error for WO $workOrderNum - Invalid response format: " . substr($response, 0, 500));
-                echo '<script>console.error("API Response Error for WO ' . htmlspecialchars($workOrderNum) . ' - Invalid format. Response: ' . htmlspecialchars(substr($response, 0, 200)) . '");</script>';
-                flush();
-                $results[$workOrderNum] = createErrorAnalysis($batch[$workOrderNum], $columnMap);
-            }
-        } else if ($httpCode == 0) {
-            // Connection failed completely - try a single retry
-            $curlError = curl_error($ch);
-            error_log("API Connection Failed for WO $workOrderNum - Error: $curlError");
-            echo '<script>console.error("API Connection Failed for WO ' . htmlspecialchars($workOrderNum) . ' - Error: ' . htmlspecialchars($curlError) . '. Attempting retry...");</script>';
-            flush();
-
-            // Try a single synchronous retry for this specific request
-            $retryResult = retrySingleRequest($workOrderNum, $batch[$workOrderNum], $columnMap, $grokApiKey);
-            if ($retryResult !== false) {
-                echo '<script>console.log("Retry successful for WO ' . htmlspecialchars($workOrderNum) . '");</script>';
-                flush();
-                $results[$workOrderNum] = $retryResult;
-            } else {
-                echo '<script>console.error("Retry also failed for WO ' . htmlspecialchars($workOrderNum) . '");</script>';
-                flush();
-                $results[$workOrderNum] = createErrorAnalysis($batch[$workOrderNum], $columnMap);
-            }
-        } else {
-            // HTTP error
-            $curlError = curl_error($ch);
-            $responseSnippet = $response ? substr($response, 0, 200) : 'No response body';
-            error_log("API Request Failed for WO $workOrderNum - HTTP $httpCode - Error: $curlError - Response: $responseSnippet");
-            echo '<script>console.error("API Request Failed for WO ' . htmlspecialchars($workOrderNum) . ' - HTTP ' . $httpCode . ' - Response: ' . htmlspecialchars($responseSnippet) . '");</script>';
-            flush();
-            $results[$workOrderNum] = createErrorAnalysis($batch[$workOrderNum], $columnMap);
-        }
-
-        curl_multi_remove_handle($multiHandle, $ch);
-        curl_close($ch);
-    }
-
-    curl_multi_close($multiHandle);
-
-    return $results;
-}
-*/
 
 function getDetailedAnalysisPromptForBatch() {
     return "You are a professional accountant analyzing HVAC work orders for CAPEX vs OPEX determination under ASC 360.
@@ -803,6 +587,165 @@ OPEX_AMOUNT: [dollar amount without tax]
 JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]";
 }
 
+// Process multiple work orders in parallel using different API keys
+function processBatchParallel($batch, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey) {
+    $apiKeys = defined('GROK_API_KEYS') ? GROK_API_KEYS : [$grokApiKey, $grokApiKey, $grokApiKey, $grokApiKey, $grokApiKey];
+
+    $multiHandle = curl_multi_init();
+    $curlHandles = [];
+    $workOrderMap = [];
+
+    $keyIndex = 0;
+    foreach ($batch as $workOrderNum => $rows) {
+        $apiKey = $apiKeys[$keyIndex % count($apiKeys)];
+        $keyIndex++;
+
+        // Prepare work order data
+        $workOrderData = prepareWorkOrderData($rows, $columnMap);
+
+        if (!$workOrderData) {
+            continue;
+        }
+
+        // Create curl handle
+        $ch = createGrokCurlHandle($workOrderData, $apiKey);
+
+        if ($ch) {
+            curl_multi_add_handle($multiHandle, $ch);
+            $curlHandles[$workOrderNum] = $ch;
+            $workOrderMap[$workOrderNum] = ['rows' => $rows, 'data' => $workOrderData];
+        }
+    }
+
+    // Execute all requests simultaneously
+    $running = null;
+    do {
+        curl_multi_exec($multiHandle, $running);
+        if ($running > 0) {
+            curl_multi_select($multiHandle, 0.1);
+        }
+    } while ($running > 0);
+
+    // Collect results
+    $results = [];
+    foreach ($curlHandles as $workOrderNum => $ch) {
+        $response = curl_multi_getcontent($ch);
+        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+
+        if ($httpCode === 200 && $response) {
+            $responseData = json_decode($response, true);
+            if (isset($responseData['choices'][0]['message']['content'])) {
+                $content = $responseData['choices'][0]['message']['content'];
+                $results[$workOrderNum] = [
+                    'determination' => 'UNKNOWN',
+                    'justification' => $content
+                ];
+            } else {
+                $results[$workOrderNum] = createErrorResult('Invalid API response');
+            }
+        } else {
+            $results[$workOrderNum] = createErrorResult('API request failed (HTTP ' . $httpCode . ')');
+        }
+
+        curl_multi_remove_handle($multiHandle, $ch);
+        curl_close($ch);
+    }
+
+    curl_multi_close($multiHandle);
+
+    return $results;
+}
+
+// Helper function to prepare work order data
+function prepareWorkOrderData($rows, $columnMap) {
+    $lineItems = [];
+    $totalCost = 0;
+    $totalTax = 0;
+
+    foreach ($rows as $row) {
+        $description = isset($columnMap['description']) ? trim($row[$columnMap['description']] ?? '') : '';
+        $lineCost = isset($columnMap['line_cost']) ? floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']])) : 0;
+
+        if (!empty($description)) {
+            $lineItems[] = [
+                'description' => $description,
+                'cost' => $lineCost
+            ];
+            $totalCost += $lineCost;
+        }
+    }
+
+    if (isset($columnMap['pepboys_tax']) && count($rows) > 0) {
+        $totalTax = floatval(str_replace(['$', ','], '', $rows[0][$columnMap['pepboys_tax']]));
+    }
+
+    if (empty($lineItems)) {
+        return null;
+    }
+
+    return json_encode([
+        'line_items' => $lineItems,
+        'total_cost' => $totalCost,
+        'total_tax' => $totalTax
+    ]);
+}
+
+// Helper function to create Grok curl handle
+function createGrokCurlHandle($workOrderData, $apiKey) {
+    $workOrder = json_decode($workOrderData, true);
+
+    $prompt = "You are a professional accountant with extensive experience in ASC 360 (Property, Plant, and Equipment) compliance and public entity financial reporting.
+
+Analyze this work order with multiple line items. For EACH line item, determine its individual CAPEX vs OPEX allocation, then provide an overall determination.
+
+Line Items:
+" . implode("\n", array_map(function($item, $idx) {
+    return ($idx + 1) . ". " . $item['description'] . " - Cost: $" . number_format($item['cost'], 2);
+}, $workOrder['line_items'], array_keys($workOrder['line_items']))) . "
+
+Total Cost: $" . number_format($workOrder['total_cost'], 2) . "
+Total Tax: $" . number_format($workOrder['total_tax'], 2) . "
+
+Respond with CAPEX/OPEX determination and justification.";
+
+    $data = [
+        'model' => 'grok-4-fast',
+        'messages' => [
+            ['role' => 'user', 'content' => $prompt]
+        ],
+        'temperature' => 0.3
+    ];
+
+    $ch = curl_init('https://api.x.ai/v1/chat/completions');
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_POST, true);
+    curl_setopt($ch, CURLOPT_HTTPHEADER, [
+        'Content-Type: application/json; charset=utf-8',
+        'Authorization: Bearer ' . $apiKey
+    ]);
+    curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode($data));
+    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+
+    return $ch;
+}
+
+// Helper function to create error result
+function createErrorResult($message) {
+    return [
+        'determination' => 'ERROR',
+        'capex_amount' => 0,
+        'opex_amount' => 0,
+        'capex_tax' => 0,
+        'opex_tax' => 0,
+        'total_capex' => 0,
+        'total_opex' => 0,
+        'justification' => $message,
+        'category' => '',
+        'line_items' => []
+    ];
+}
+
 function retrySingleRequest($workOrderNum, $rows, $columnMap, $grokApiKey) {
     // Build prompt for this work order
     $descriptions = [];
@@ -836,7 +779,7 @@ function retrySingleRequest($workOrderNum, $rows, $columnMap, $grokApiKey) {
         'Expect: '
     ]);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-        'model' => 'grok-4-fast-reasoning',
+        'model' => 'grok-4-fast',
         'messages' => [
             ['role' => 'user', 'content' => $prompt]
         ],
@@ -896,20 +839,16 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openai
 
     // Debug first row to see what data we have
     if (count($rows) > 0) {
-        echo '<script>console.log("Analyzing WO with ' . count($rows) . ' rows. First row:", ' . json_encode($rows[0]) . ');</script>';
 
         // Get PepBoys totals from first row (they're the same for all rows in a work order)
         if (isset($columnMap['pepboys_subtotal'])) {
             $pepboysSubtotal = floatval(str_replace(['$', ','], '', $rows[0][$columnMap['pepboys_subtotal']]));
-            echo '<script>console.log("PepBoys Subtotal: $' . number_format($pepboysSubtotal, 2) . '");</script>';
         }
         if (isset($columnMap['pepboys_tax'])) {
             $pepboysTax = floatval(str_replace(['$', ','], '', $rows[0][$columnMap['pepboys_tax']]));
-            echo '<script>console.log("PepBoys Tax: $' . number_format($pepboysTax, 2) . '");</script>';
         }
         if (isset($columnMap['pepboys_invoice'])) {
             $pepboysInvoice = floatval(str_replace(['$', ','], '', $rows[0][$columnMap['pepboys_invoice']]));
-            echo '<script>console.log("PepBoys Invoice Total: $' . number_format($pepboysInvoice, 2) . '");</script>';
         }
     }
 
@@ -931,7 +870,6 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openai
                     strpos(strtolower($headers[$idx]), 'pepboys') === false) {
                     $description = $cell;
                     if ($rowIndex == 0) {
-                        echo '<script>console.log("Found description in column ' . $idx . ' (' . $headers[$idx] . '): ' . substr($cell, 0, 50) . '...");</script>';
                     }
                     break;
                 }
@@ -964,7 +902,6 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openai
             ];
 
             if ($rowIndex == 0) {
-                echo '<script>console.log("Line item #1: ' . addslashes(substr($description, 0, 50)) . '... Cost: $' . number_format($lineCost, 2) . '");</script>';
             }
         }
     }
@@ -973,19 +910,14 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openai
     if ($pepboysSubtotal > 0) {
         $totalCost = $pepboysSubtotal;
         $totalTax = $pepboysTax;
-        echo '<script>console.log("Using PepBoys totals - Subtotal: $' . number_format($totalCost, 2) . ', Tax: $' . number_format($totalTax, 2) . '");</script>';
     } else {
         // Calculate from line items
         foreach ($lineItems as $item) {
             $totalCost += $item['cost'];
         }
-        echo '<script>console.log("Calculated from line items - Total: $' . number_format($totalCost, 2) . '");</script>';
     }
 
     if (empty($descriptions)) {
-        echo '<script>console.error("No descriptions found in work order. Column map: ", ' . json_encode($columnMap) . ');</script>';
-        echo '<script>console.error("Headers: ", ' . json_encode($GLOBALS['headers'] ?? []) . ');</script>';
-        echo '<script>console.error("First row was: ", ' . json_encode(isset($rows[0]) ? $rows[0] : 'No rows') . ');</script>';
 
         // If we have totals but no descriptions, create a generic entry
         if ($pepboysSubtotal > 0 || $totalCost > 0) {
@@ -994,7 +926,6 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openai
                 'description' => 'Work order total',
                 'cost' => $pepboysSubtotal > 0 ? $pepboysSubtotal : $totalCost
             ];
-            echo '<script>console.log("Using work order totals despite missing descriptions");</script>';
         } else {
             return [
                 'determination' => 'ERROR',
@@ -1017,7 +948,6 @@ function analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openai
         'total_tax' => $totalTax
     ]);
 
-    echo '<script>console.log("Work order data prepared - Total cost: $' . number_format($totalCost, 2) . ', Items: ' . count($lineItems) . '");</script>';
     flush();
 
     // Get AI analysis from Grok only (temporarily disabled OpenAI and Gemini)
@@ -1043,7 +973,6 @@ function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
 
     // Log what we're parsing
     error_log("Parsing AI response: " . substr($analysis['justification'], 0, 200));
-    echo '<script>console.log("Total cost: $' . number_format($totalCost, 2) . ', Total tax: $' . number_format($totalTax, 2) . '");</script>';
 
     // Extract determination
     if (preg_match('/DETERMINATION:\s*(CAPEX|OPEX|MIXED)/i', $analysis['justification'], $matches)) {
@@ -1122,8 +1051,6 @@ function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
         $result['capex_tax'] = $totalTax * $capexRatio;
         $result['opex_tax'] = $totalTax * $opexRatio;
 
-        echo '<script>console.log("Tax allocation - CAPEX ratio: ' . number_format($capexRatio * 100, 1) . '%, OPEX ratio: ' . number_format($opexRatio * 100, 1) . '%");</script>';
-        echo '<script>console.log("Tax amounts - CAPEX tax: $' . number_format($result['capex_tax'], 2) . ', OPEX tax: $' . number_format($result['opex_tax'], 2) . '");</script>';
     }
 
     // Calculate totals INCLUDING TAX
@@ -1135,244 +1062,11 @@ function parseAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
         $result['category'] = '';
     }
 
-    echo '<script>console.log("Final totals with tax - CAPEX: $' . number_format($result['total_capex'], 2) . ', OPEX: $' . number_format($result['total_opex'], 2) . '");</script>';
 
     return $result;
 }
 
-// Temporarily disabled - multi-AI analysis
-/*
-function analyzeWithAllAIs($workOrderData, $geminiApiKey, $grokApiKey, $openaiApiKey) {
-    $responses = [
-        'grok' => null,
-        'gemini' => null,
-        'openai' => null,
-        'grok_raw' => '',
-        'gemini_raw' => '',
-        'openai_raw' => ''
-    ];
 
-    // Query Grok
-    if (!empty($grokApiKey)) {
-        echo '<script>console.log("Querying Grok API...");</script>';
-        $grokResult = analyzeWithGrok($workOrderData, $grokApiKey);
-        $responses['grok'] = $grokResult;
-        $responses['grok_raw'] = $grokResult['justification'] ?? '';
-    }
-
-    // Query Gemini
-    if (!empty($geminiApiKey)) {
-        echo '<script>console.log("Querying Gemini API...");</script>';
-        $geminiResult = analyzeWithGemini($workOrderData, $geminiApiKey);
-        $responses['gemini'] = $geminiResult;
-        $responses['gemini_raw'] = $geminiResult['justification'] ?? '';
-    }
-
-    // Query OpenAI
-    if (!empty($openaiApiKey)) {
-        echo '<script>console.log("Querying OpenAI API...");</script>';
-        $openaiResult = analyzeWithOpenAI($workOrderData, $openaiApiKey);
-        $responses['openai'] = $openaiResult;
-        $responses['openai_raw'] = $openaiResult['justification'] ?? '';
-    }
-
-    return $responses;
-}
-
-function parseAllAIResponses($allResponses, $totalCost, $totalTax, $lineItems) {
-    // Start with default values
-    $result = [
-        'determination' => 'UNKNOWN',
-        'capex_amount' => 0,
-        'opex_amount' => 0,
-        'capex_tax' => 0,
-        'opex_tax' => 0,
-        'total_capex' => 0,
-        'total_opex' => 0,
-        'justification' => '',
-        'grok_response' => $allResponses['grok_raw'],
-        'gemini_response' => $allResponses['gemini_raw'],
-        'openai_response' => $allResponses['openai_raw']
-    ];
-
-    // Try to use the first successful response for the main analysis
-    $primaryResponse = null;
-    if ($allResponses['grok'] && $allResponses['grok']['determination'] !== 'ERROR') {
-        $primaryResponse = $allResponses['grok'];
-        $result['justification'] = 'Grok: ' . $allResponses['grok_raw'];
-    } elseif ($allResponses['gemini'] && $allResponses['gemini']['determination'] !== 'ERROR') {
-        $primaryResponse = $allResponses['gemini'];
-        $result['justification'] = 'Gemini: ' . $allResponses['gemini_raw'];
-    } elseif ($allResponses['openai'] && $allResponses['openai']['determination'] !== 'ERROR') {
-        $primaryResponse = $allResponses['openai'];
-        $result['justification'] = 'OpenAI: ' . $allResponses['openai_raw'];
-    }
-
-    // If we have a primary response, parse it
-    if ($primaryResponse) {
-        $parsed = parseAIResponse($primaryResponse, $totalCost, $totalTax, $lineItems);
-        $result = array_merge($result, $parsed);
-
-        // Keep the individual responses
-        $result['grok_response'] = $allResponses['grok_raw'];
-        $result['gemini_response'] = $allResponses['gemini_raw'];
-        $result['openai_response'] = $allResponses['openai_raw'];
-    }
-
-    return $result;
-}
-
-function analyzeWithOpenAI($workOrderData, $apiKey) {
-    $workOrder = json_decode($workOrderData, true);
-
-    $prompt = "You are a professional accountant with extensive experience in ASC 360 (Property, Plant, and Equipment) compliance and public entity financial reporting.
-
-Analyze this work order with multiple line items and determine the CAPEX vs OPEX allocation:
-
-Line Items:
-" . implode("\n", array_map(function($item, $idx) {
-    return ($idx + 1) . ". " . $item['description'] . " - Cost: $" . number_format($item['cost'], 2);
-}, $workOrder['line_items'], array_keys($workOrder['line_items']))) . "
-
-Total Cost: $" . number_format($workOrder['total_cost'], 2) . "
-Total Tax: $" . number_format($workOrder['total_tax'], 2) . "
-
-ASC 360 CAPEX Criteria:
-- Replacement of major components (fan motors, compressors, switches, control boards, entire units)
-- Significant repairs that extend asset life beyond one year
-- Upgrades that increase capacity, efficiency, or quality of output
-- Safety and environmental improvements
-
-OPEX Criteria:
-- ANY work order containing the word 'temporary' is automatically OPEX
-- Routine maintenance (tape, filters, belts, cleaning)
-- Minor repairs (leak repairs, recharging refrigerant)
-- Inspections and evaluations
-- Items that merely maintain existing condition
-- Consumable supplies
-
-Specific Guidelines:
-- TEMPORARY WORK RULE: If the work order description contains 'temporary' anywhere, ALL items are 100% OPEX
-- Tape, recharge, filters, inspection, leaks, evaluations, belts, leak repairs = 100% OPEX
-- Fan motors, switches, replacement units, major repairs, hardware items = 100% CAPEX (unless temporary)
-- CRITICAL: Every material/part/equipment must be classified as ENTIRELY (100%) CAPEX or ENTIRELY (100%) OPEX
-- NO material, part, or piece of equipment can be split between CAPEX and OPEX
-- Labor allocation: Proportional to the ratio of CAPEX materials to OPEX materials
-- Shipping/Freight: If ANY materials are CAPEX, then 100% of shipping/freight charges go to CAPEX
-- Trip charges: Allocated proportionally like labor based on material ratio
-- Tax should be allocated proportionally between CAPEX and OPEX
-
-CRITICAL ALLOCATION RULES:
-1. TEMPORARY WORK OVERRIDE: Any work order with 'temporary' in the description is automatically 100% OPEX
-2. ALL hardware items, materials, parts, and equipment must be classified as either 100% CAPEX or 100% OPEX - NO SPLITTING OF MATERIALS
-3. Each physical item is ENTIRELY CAPEX or ENTIRELY OPEX based on ASC 360 criteria
-4. ONLY labor, shipping, freight, and trip charges can be allocated proportionally
-
-ALLOCATION PROCESS:
-1. Classify each material/part as 100% CAPEX or 100% OPEX (no splitting)
-2. Calculate total value of CAPEX materials vs OPEX materials
-3. Determine the percentage (e.g., $700 CAPEX parts + $300 OPEX parts = 70% CAPEX/30% OPEX)
-4. SHIPPING/FREIGHT RULE: If ANY materials are CAPEX, then 100% of shipping/freight is CAPEX
-5. LABOR RULE: Apply the material percentage to labor (70% CAPEX materials = 70% of labor is CAPEX)
-6. TRIP CHARGES: Apply the same percentage as labor  
-
-IMPORTANT: First check if the work order contains the word 'temporary' - if it does, everything is OPEX.
-
-Please analyze and respond in this format:
-DETERMINATION: [CAPEX/OPEX/MIXED]
-CATEGORY: [If CAPEX or MIXED: Controls/Automation OR Infrastructure/Utility OR Heater Replacement. If pure OPEX: N/A]
-CAPEX_AMOUNT: [dollar amount without tax]
-OPEX_AMOUNT: [dollar amount without tax]
-JUSTIFICATION: [Professional explanation citing specific items and ASC 360 criteria, including how labor and service charges were allocated]
-
-CATEGORY RULES:
-- ONLY categorize work orders that contain CAPEX (CAPEX or MIXED determinations)
-- Pure OPEX work orders should have category N/A
-- Category Definitions (for CAPEX work):
-  * Controls/Automation: Control systems, automation, thermostats, sensors, BMS
-  * Infrastructure/Utility: Electrical, plumbing, structural, utilities, power systems
-  * Heater Replacement: HVAC, heating, cooling, compressors, air handlers, refrigeration";
-
-    $data = [
-        'model' => 'gpt-4-turbo-preview',
-        'messages' => [
-            [
-                'role' => 'system',
-                'content' => 'You are a professional accountant expert in ASC 360 compliance.'
-            ],
-            [
-                'role' => 'user',
-                'content' => $prompt
-            ]
-        ],
-        'temperature' => 0.3,
-        'max_tokens' => 800
-    ];
-
-    $jsonPayload = json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-
-    if (json_last_error() !== JSON_ERROR_NONE) {
-        error_log("JSON Encoding Error: " . json_last_error_msg());
-        return [
-            'determination' => 'ERROR',
-            'justification' => 'Failed to encode request data'
-        ];
-    }
-
-    $ch = curl_init('https://api.openai.com/v1/chat/completions');
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_POST, true);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        'Content-Type: application/json; charset=utf-8',
-        'Authorization: Bearer ' . $apiKey
-    ]);
-    curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 30);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-    curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-
-    $response = curl_exec($ch);
-    $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
-    curl_close($ch);
-
-    if ($httpCode !== 200 || !$response) {
-        $errorMsg = "API Error (HTTP $httpCode)";
-        if ($curlError) {
-            $errorMsg .= " - CURL: $curlError";
-        }
-        if ($response) {
-            $errorData = json_decode($response, true);
-            if (isset($errorData['error']['message'])) {
-                $errorMsg .= " - " . $errorData['error']['message'];
-            }
-            error_log("OpenAI API Error: " . json_encode($errorData));
-        }
-        return [
-            'determination' => 'ERROR',
-            'justification' => $errorMsg
-        ];
-    }
-
-    $responseData = json_decode($response, true);
-
-    if (!isset($responseData['choices'][0]['message']['content'])) {
-        return [
-            'determination' => 'ERROR',
-            'justification' => 'Invalid API response'
-        ];
-    }
-
-    $content = $responseData['choices'][0]['message']['content'];
-
-    echo '<script>console.log("OpenAI response received:", ' . json_encode(substr($content, 0, 500)) . ');</script>';
-
-    return [
-        'determination' => 'UNKNOWN',
-        'justification' => $content
-    ];
-}
-*/
 
 function analyzeWithAI($workOrderData, $geminiApiKey, $grokApiKey) {
     // Try Gemini first
@@ -1382,23 +1076,17 @@ function analyzeWithAI($workOrderData, $geminiApiKey, $grokApiKey) {
             return $result;
         }
         error_log("Gemini API failed, falling back to Grok: " . $result['justification']);
-        echo '<script>console.log("Gemini API failed: ' . addslashes($result['justification']) . '");</script>';
     } else {
-        echo '<script>console.log("Gemini API key is empty, skipping to Grok");</script>';
     }
 
     // Fallback to Grok
     if (!empty($grokApiKey)) {
-        echo '<script>console.log("Trying Grok API...");</script>';
         $result = analyzeWithGrok($workOrderData, $grokApiKey);
         if ($result['determination'] !== 'ERROR') {
-            echo '<script>console.log("Grok API succeeded");</script>';
             return $result;
         }
         error_log("Grok API also failed: " . $result['justification']);
-        echo '<script>console.error("Grok API failed: ' . addslashes($result['justification']) . '");</script>';
     } else {
-        echo '<script>console.log("Grok API key is empty");</script>';
     }
 
     // Both failed
@@ -1653,45 +1341,19 @@ function parseDetailedAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
         }
     }
 
-    // Allocate tax proportionally to each line item
-    if ($totalCost > 0 && $totalTax > 0) {
-        foreach ($result['line_items'] as $idx => &$lineItem) {
-            $lineCost = $lineItems[$idx]['cost'];
-
-            // Calculate this line's proportion of total cost
-            $lineRatio = $totalCost > 0 ? ($lineCost / $totalCost) : 0;
-
-            // Allocate tax to this line proportionally
-            $lineTax = $totalTax * $lineRatio;
-
-            // Split line tax between CAPEX and OPEX based on line allocation
-            $lineTotal = $lineItem['capex_amount'] + $lineItem['opex_amount'];
-            if ($lineTotal > 0) {
-                $lineCapexRatio = $lineItem['capex_amount'] / $lineTotal;
-                $lineOpexRatio = $lineItem['opex_amount'] / $lineTotal;
-            } else {
-                $lineCapexRatio = 0;
-                $lineOpexRatio = 0;
-            }
-
-            $lineItem['capex_tax'] = $lineTax * $lineCapexRatio;
-            $lineItem['opex_tax'] = $lineTax * $lineOpexRatio;
-            $lineItem['total_capex'] = $lineItem['capex_amount'] + $lineItem['capex_tax'];
-            $lineItem['total_opex'] = $lineItem['opex_amount'] + $lineItem['opex_tax'];
+    // Allocate tax proportionally
+    if ($totalCost > 0 && ($result['capex_amount'] > 0 || $result['opex_amount'] > 0)) {
+        $actualTotal = $result['capex_amount'] + $result['opex_amount'];
+        if ($actualTotal > 0) {
+            $capexRatio = $result['capex_amount'] / $actualTotal;
+            $opexRatio = $result['opex_amount'] / $actualTotal;
+        } else {
+            $capexRatio = 0;
+            $opexRatio = 0;
         }
-        unset($lineItem); // Break reference
-    }
 
-    // Calculate overall tax allocation from line items
-    $result['capex_tax'] = 0;
-    $result['opex_tax'] = 0;
-    foreach ($result['line_items'] as $lineItem) {
-        if (isset($lineItem['capex_tax'])) {
-            $result['capex_tax'] += $lineItem['capex_tax'];
-        }
-        if (isset($lineItem['opex_tax'])) {
-            $result['opex_tax'] += $lineItem['opex_tax'];
-        }
+        $result['capex_tax'] = $totalTax * $capexRatio;
+        $result['opex_tax'] = $totalTax * $opexRatio;
     }
 
     // Calculate totals INCLUDING TAX
@@ -1758,18 +1420,21 @@ ALLOCATION PROCESS:
 4. SHIPPING/FREIGHT RULE: If ANY materials in the work order are CAPEX, then ALL shipping and freight charges are 100% CAPEX
 5. LABOR RULE: Allocate labor proportionally based on the CAPEX/OPEX material ratio (e.g., 80% CAPEX materials = 80% of labor is CAPEX)
 6. TRIP CHARGES: Follow the same proportional allocation as labor
+7. TAXES: Follow the same proportional allocation as labor and trip charges based on the material ratio
 
 REMEMBER:
 - Materials/parts/equipment: Must be either CAPEX:100% OPEX:0% or CAPEX:0% OPEX:100%
 - Shipping/Freight: If ANY materials are CAPEX, then CAPEX:100% OPEX:0%
 - Labor: Split based on material ratio (e.g., CAPEX:70% OPEX:30% if materials are 70/30)
 - Trip charges: Split same as labor
+- Taxes: Split same as labor and trip charges based on material ratio
 
-EXAMPLE: If work order has $800 fan motor (CAPEX), $200 filters (OPEX), $300 labor, $50 shipping:
+EXAMPLE: If work order has $800 fan motor (CAPEX), $200 filters (OPEX), $300 labor, $50 shipping, $85 tax:
 - Fan motor: CAPEX:100% OPEX:0%
 - Filters: CAPEX:0% OPEX:100%
-- Labor: CAPEX:80% OPEX:20% (based on $800/$1000 material ratio)
-- Shipping: CAPEX:100% OPEX:0% (because CAPEX materials exist)
+- Labor: CAPEX:80% OPEX:20% (based on $800/$1000 material ratio = $240 CAPEX labor, $60 OPEX labor)
+- Shipping: CAPEX:100% OPEX:0% (because CAPEX materials exist = $50 CAPEX)
+- Tax: CAPEX:80% OPEX:20% (same as labor ratio = $68 CAPEX tax, $17 OPEX tax)
 
 IMPORTANT: First check if the work order contains the word 'temporary' - if it does, ALL items are OPEX.
 
@@ -1792,7 +1457,7 @@ CATEGORY RULES:
   * Heater Replacement: HVAC systems, heating units, cooling systems, air handlers, compressors, refrigeration units, ventilation equipment";
 
     $data = [
-        'model' => 'grok-4-fast-reasoning',
+        'model' => 'grok-4-fast',
         'messages' => [
             [
                 'role' => 'user',
@@ -1823,6 +1488,17 @@ CATEGORY RULES:
     curl_setopt($ch, CURLOPT_TIMEOUT, 30);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
     curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+
+    // Output API request details to console
+    $apiInfo = [
+        'endpoint' => 'https://api.x.ai/v1/chat/completions',
+        'model' => $data['model'],
+        'api_key_prefix' => substr($apiKey, 0, 20) . '...',
+        'prompt' => $prompt,
+        'temperature' => $data['temperature']
+    ];
+    echo '<script>console.log("=== API Request ===\\n", ' . json_encode($apiInfo, JSON_PRETTY_PRINT) . ');</script>';
+    flush();
 
     $response = curl_exec($ch);
     $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -1858,7 +1534,6 @@ CATEGORY RULES:
 
     $content = $responseData['choices'][0]['message']['content'];
 
-    echo '<script>console.log("Grok detailed response received:", ' . json_encode(substr($content, 0, 800)) . ');</script>';
 
     return [
         'determination' => 'UNKNOWN',
@@ -1938,7 +1613,7 @@ CATEGORY RULES:
   * Heater Replacement: HVAC, heating, cooling, compressors, air handlers, refrigeration";
 
     $data = [
-        'model' => 'grok-4-fast-reasoning',
+        'model' => 'grok-4-fast',
         'messages' => [
             [
                 'role' => 'user',
@@ -1986,7 +1661,6 @@ CATEGORY RULES:
                 $errorMsg .= " - " . $errorData['error']['message'];
             }
             error_log("Grok API Error Response: " . $response);
-            echo '<script>console.error("Grok API HTTP ' . $httpCode . ' Response:", ' . json_encode($response) . ');</script>';
         }
         return [
             'determination' => 'ERROR',
@@ -2005,7 +1679,6 @@ CATEGORY RULES:
 
     $content = $responseData['choices'][0]['message']['content'];
 
-    echo '<script>console.log("Grok response received:", ' . json_encode(substr($content, 0, 500)) . ');</script>';
 
     return [
         'determination' => 'UNKNOWN',
