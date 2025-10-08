@@ -635,7 +635,7 @@ function retrySingleRequest($workOrderNum, $rows, $columnMap, $grokApiKey) {
         'Expect: '
     ]);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-        'model' => 'grok-4-fast-reasoning',
+        'model' => 'grok-code-fast-1',
         'messages' => [
             ['role' => 'user', 'content' => $prompt]
         ],
@@ -1565,7 +1565,7 @@ CATEGORY RULES:
   * Heater Replacement: HVAC systems, heating units, cooling systems, air handlers, compressors, refrigeration units, ventilation equipment";
 
     $data = [
-        'model' => 'grok-4-fast-reasoning',
+        'model' => 'grok-code-fast-1',
         'messages' => [
             [
                 'role' => 'user',
@@ -1711,7 +1711,7 @@ CATEGORY RULES:
   * Heater Replacement: HVAC, heating, cooling, compressors, air handlers, refrigeration";
 
     $data = [
-        'model' => 'grok-4-fast-reasoning',
+        'model' => 'grok-code-fast-1',
         'messages' => [
             [
                 'role' => 'user',
