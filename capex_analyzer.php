@@ -327,28 +327,46 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
         echo '<div class="row-result pending">Processing Work Order ' . htmlspecialchars($workOrderNum) . ' (' . $processedCount . '/' . count($workOrdersToProcess) . ')...</div>';
         flush();
 
-        // Check if all rows are maintenance/preventive based on request code
+        // Check if all rows are maintenance/preventive based on request code OR column D
         $allMaintenance = true;
         $maintenanceTotal = 0;
         $maintenanceTax = 0;
 
-        if (isset($columnMap['request_code'])) {
-            foreach ($rows as $row) {
+        foreach ($rows as $row) {
+            $isMaintenance = false;
+
+            // Check request_code column if it exists
+            if (isset($columnMap['request_code'])) {
                 $requestCode = isset($row[$columnMap['request_code']]) ? strtoupper(trim($row[$columnMap['request_code']])) : '';
-                if (strpos($requestCode, 'MAINTENANCE') === false && strpos($requestCode, 'PREVENTIVE') === false) {
-                    $allMaintenance = false;
-                    break;
-                }
-                // Calculate totals for maintenance items
-                if (isset($columnMap['line_cost'])) {
-                    $maintenanceTotal += floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']]));
+                if (strpos($requestCode, 'MAINTENANCE') !== false || strpos($requestCode, 'PREVENTIVE') !== false) {
+                    $isMaintenance = true;
                 }
             }
 
-            // Get tax for maintenance items
-            if ($allMaintenance && isset($columnMap['pepboys_tax']) && count($rows) > 0) {
-                $maintenanceTax = floatval(str_replace(['$', ','], '', $rows[0][$columnMap['pepboys_tax']]));
+            // Check column D (index 3) for "preventative maintenance"
+            if (isset($row[3])) {
+                $columnD = strtoupper(trim($row[3]));
+                if (strpos($columnD, 'PREVENTATIVE') !== false || strpos($columnD, 'PREVENTIVE') !== false) {
+                    if (strpos($columnD, 'MAINTENANCE') !== false || strpos($columnD, 'MAINT') !== false) {
+                        $isMaintenance = true;
+                    }
+                }
             }
+
+            if (!$isMaintenance) {
+                $allMaintenance = false;
+                break;
+            }
+
+            // Calculate totals for maintenance items
+            if (isset($columnMap['line_cost'])) {
+                $maintenanceTotal += floatval(str_replace(['$', ','], '', $row[$columnMap['line_cost']]));
+            }
+        }
+
+        // Get tax for maintenance items
+        if ($allMaintenance && isset($columnMap['pepboys_tax']) && count($rows) > 0) {
+            $maintenanceTax = floatval(str_replace(['$', ','], '', $rows[0][$columnMap['pepboys_tax']]));
         }
 
         // If all lines are maintenance, skip API call and create OPEX result directly
@@ -1635,19 +1653,45 @@ function parseDetailedAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
         }
     }
 
-    // Allocate tax proportionally
-    if ($totalCost > 0 && ($result['capex_amount'] > 0 || $result['opex_amount'] > 0)) {
-        $actualTotal = $result['capex_amount'] + $result['opex_amount'];
-        if ($actualTotal > 0) {
-            $capexRatio = $result['capex_amount'] / $actualTotal;
-            $opexRatio = $result['opex_amount'] / $actualTotal;
-        } else {
-            $capexRatio = 0;
-            $opexRatio = 0;
-        }
+    // Allocate tax proportionally to each line item
+    if ($totalCost > 0 && $totalTax > 0) {
+        foreach ($result['line_items'] as $idx => &$lineItem) {
+            $lineCost = $lineItems[$idx]['cost'];
 
-        $result['capex_tax'] = $totalTax * $capexRatio;
-        $result['opex_tax'] = $totalTax * $opexRatio;
+            // Calculate this line's proportion of total cost
+            $lineRatio = $totalCost > 0 ? ($lineCost / $totalCost) : 0;
+
+            // Allocate tax to this line proportionally
+            $lineTax = $totalTax * $lineRatio;
+
+            // Split line tax between CAPEX and OPEX based on line allocation
+            $lineTotal = $lineItem['capex_amount'] + $lineItem['opex_amount'];
+            if ($lineTotal > 0) {
+                $lineCapexRatio = $lineItem['capex_amount'] / $lineTotal;
+                $lineOpexRatio = $lineItem['opex_amount'] / $lineTotal;
+            } else {
+                $lineCapexRatio = 0;
+                $lineOpexRatio = 0;
+            }
+
+            $lineItem['capex_tax'] = $lineTax * $lineCapexRatio;
+            $lineItem['opex_tax'] = $lineTax * $lineOpexRatio;
+            $lineItem['total_capex'] = $lineItem['capex_amount'] + $lineItem['capex_tax'];
+            $lineItem['total_opex'] = $lineItem['opex_amount'] + $lineItem['opex_tax'];
+        }
+        unset($lineItem); // Break reference
+    }
+
+    // Calculate overall tax allocation from line items
+    $result['capex_tax'] = 0;
+    $result['opex_tax'] = 0;
+    foreach ($result['line_items'] as $lineItem) {
+        if (isset($lineItem['capex_tax'])) {
+            $result['capex_tax'] += $lineItem['capex_tax'];
+        }
+        if (isset($lineItem['opex_tax'])) {
+            $result['opex_tax'] += $lineItem['opex_tax'];
+        }
     }
 
     // Calculate totals INCLUDING TAX
