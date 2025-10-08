@@ -9,6 +9,11 @@ $grokApiKey = defined('GROK_API_KEY') ? GROK_API_KEY : getenv('GROK_API_KEY');
 $geminiApiKey = '';
 $openaiApiKey = '';
 
+// Debug: Output API key status at the very start
+if (isset($_POST)) {
+    echo '<script>console.log("=== API Key Loaded at Start ===\\nGrok API Key: ' . ($grokApiKey ? $grokApiKey : 'NOT FOUND') . '");</script>';
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     // Disable output buffering for real-time updates
     @ob_end_clean();
