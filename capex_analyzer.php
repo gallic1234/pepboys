@@ -1188,19 +1188,46 @@ function parseDetailedAIResponse($analysis, $totalCost, $totalTax, $lineItems) {
         }
     }
 
-    // Allocate tax proportionally
-    if ($totalCost > 0 && ($result['capex_amount'] > 0 || $result['opex_amount'] > 0)) {
-        $actualTotal = $result['capex_amount'] + $result['opex_amount'];
-        if ($actualTotal > 0) {
-            $capexRatio = $result['capex_amount'] / $actualTotal;
-            $opexRatio = $result['opex_amount'] / $actualTotal;
-        } else {
-            $capexRatio = 0;
-            $opexRatio = 0;
-        }
+    // Allocate tax proportionally to each line item based on line cost
+    if ($totalCost > 0 && $totalTax > 0) {
+        foreach ($result['line_items'] as $idx => &$lineItem) {
+            if (isset($lineItems[$idx])) {
+                $lineCost = $lineItems[$idx]['cost'];
 
-        $result['capex_tax'] = $totalTax * $capexRatio;
-        $result['opex_tax'] = $totalTax * $opexRatio;
+                // Calculate this line's proportion of total cost
+                $lineRatio = $totalCost > 0 ? ($lineCost / $totalCost) : 0;
+
+                // Allocate tax to this line proportionally based on its cost
+                $lineTax = $totalTax * $lineRatio;
+
+                // Split line tax between CAPEX and OPEX based on the line's allocation
+                $lineTotal = $lineItem['capex_amount'] + $lineItem['opex_amount'];
+                if ($lineTotal > 0) {
+                    $lineCapexRatio = $lineItem['capex_amount'] / $lineTotal;
+                    $lineOpexRatio = $lineItem['opex_amount'] / $lineTotal;
+                } else {
+                    $lineCapexRatio = 0;
+                    $lineOpexRatio = 0;
+                }
+
+                $lineItem['capex_tax'] = $lineTax * $lineCapexRatio;
+                $lineItem['opex_tax'] = $lineTax * $lineOpexRatio;
+                $lineItem['line_tax'] = $lineTax;
+            }
+        }
+        unset($lineItem); // Break reference
+    }
+
+    // Calculate overall tax totals from line items
+    $result['capex_tax'] = 0;
+    $result['opex_tax'] = 0;
+    foreach ($result['line_items'] as $lineItem) {
+        if (isset($lineItem['capex_tax'])) {
+            $result['capex_tax'] += $lineItem['capex_tax'];
+        }
+        if (isset($lineItem['opex_tax'])) {
+            $result['opex_tax'] += $lineItem['opex_tax'];
+        }
     }
 
     // Calculate totals INCLUDING TAX
