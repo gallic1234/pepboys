@@ -16,7 +16,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
     }
 
     // Reload API key variable after ensuring config is loaded
-    $grokApiKey = defined('GROK_API_KEY') ? GROK_API_KEY : getenv('GROK_API_KEY');
+    // Use GROK_API_KEYS[0] if GROK_API_KEY is not defined
+    if (defined('GROK_API_KEY')) {
+        $grokApiKey = GROK_API_KEY;
+    } elseif (defined('GROK_API_KEYS') && !empty(GROK_API_KEYS)) {
+        $grokApiKey = GROK_API_KEYS[0];
+    } else {
+        $grokApiKey = getenv('GROK_API_KEY');
+    }
 
     // Disable output buffering for real-time updates
     @ob_end_clean();
