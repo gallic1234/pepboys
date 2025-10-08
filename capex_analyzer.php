@@ -310,7 +310,10 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
         echo '</div>';
         flush();
 
-        // Process batch in parallel - but handle each WO individually for output
+        // Process entire batch in parallel using different API keys
+        $batchResults = processBatchParallel($batch, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
+
+        // Now display results for each work order in the batch
         foreach ($batch as $workOrderNum => $rows) {
             $processedCount++;
             $progress = round(($processedCount / $totalWorkOrders) * 100);
@@ -377,29 +380,20 @@ function processCSVRealtime($inputFile, $outputFile, $geminiApiKey, $grokApiKey,
 
             flush();
         } else {
-            // Analyze the work order with error handling
-            try {
-                $analysis = analyzeWorkOrder($rows, $columnMap, $geminiApiKey, $grokApiKey, $openaiApiKey);
-
-                flush();
-            } catch (Exception $e) {
-                // Log error but continue processing
-                error_log("Error processing work order $workOrderNum: " . $e->getMessage());
-
-                // Create error result
-                $analysis = [
-                    'determination' => 'ERROR',
-                    'capex_amount' => 0,
-                    'opex_amount' => 0,
-                    'capex_tax' => 0,
-                    'opex_tax' => 0,
-                    'total_capex' => 0,
-                    'total_opex' => 0,
-                    'justification' => 'Processing error: ' . $e->getMessage(),
-                    'category' => '',
-                    'line_items' => []
-                ];
-            }
+            // Get analysis from batch results (already processed in parallel)
+            $analysis = isset($batchResults[$workOrderNum]) ? $batchResults[$workOrderNum] : [
+                'determination' => 'ERROR',
+                'capex_amount' => 0,
+                'opex_amount' => 0,
+                'capex_tax' => 0,
+                'opex_tax' => 0,
+                'total_capex' => 0,
+                'total_opex' => 0,
+                'justification' => 'No result returned from parallel processing',
+                'category' => '',
+                'line_items' => []
+            ];
+            flush();
         }
 
         // Display results after analysis
@@ -663,9 +657,66 @@ function processBatchParallel($batch, $columnMap, $geminiApiKey, $grokApiKey, $o
             $responseData = json_decode($response, true);
             if (isset($responseData['choices'][0]['message']['content'])) {
                 $content = $responseData['choices'][0]['message']['content'];
+
+                // Parse the response content (same logic as analyzeWithGrokDetailed)
+                $determination = 'UNKNOWN';
+                $category = 'N/A';
+                $capexAmount = 0;
+                $opexAmount = 0;
+                $capexTax = 0;
+                $opexTax = 0;
+                $justification = $content;
+
+                // Extract determination
+                if (preg_match('/DETERMINATION:\s*(\w+)/i', $content, $matches)) {
+                    $determination = strtoupper($matches[1]);
+                }
+
+                // Extract category
+                if (preg_match('/CATEGORY:\s*([^\n]+)/i', $content, $matches)) {
+                    $category = trim($matches[1]);
+                }
+
+                // Extract CAPEX amount
+                if (preg_match('/CAPEX_AMOUNT:\s*\$?([0-9,]+\.?\d*)/i', $content, $matches)) {
+                    $capexAmount = floatval(str_replace(',', '', $matches[1]));
+                }
+
+                // Extract OPEX amount
+                if (preg_match('/OPEX_AMOUNT:\s*\$?([0-9,]+\.?\d*)/i', $content, $matches)) {
+                    $opexAmount = floatval(str_replace(',', '', $matches[1]));
+                }
+
+                // Get work order data
+                $workOrderData = json_decode($workOrderMap[$workOrderNum]['data'], true);
+                $totalTax = $workOrderData['total_tax'];
+
+                // Calculate tax allocation
+                if ($determination === 'CAPEX') {
+                    $capexTax = $totalTax;
+                    $opexTax = 0;
+                } elseif ($determination === 'OPEX') {
+                    $capexTax = 0;
+                    $opexTax = $totalTax;
+                } else {
+                    $totalAmount = $capexAmount + $opexAmount;
+                    if ($totalAmount > 0) {
+                        $capexTax = ($capexAmount / $totalAmount) * $totalTax;
+                        $opexTax = ($opexAmount / $totalAmount) * $totalTax;
+                    }
+                }
+
                 $results[$workOrderNum] = [
-                    'determination' => 'UNKNOWN',
-                    'justification' => $content
+                    'determination' => $determination,
+                    'category' => $category,
+                    'capex_amount' => $capexAmount,
+                    'opex_amount' => $opexAmount,
+                    'capex_tax' => $capexTax,
+                    'opex_tax' => $opexTax,
+                    'total_capex' => $capexAmount + $capexTax,
+                    'total_opex' => $opexAmount + $opexTax,
+                    'justification' => $justification,
+                    'line_items' => []
                 ];
             } else {
                 $results[$workOrderNum] = createErrorResult('Invalid API response');
@@ -1508,7 +1559,7 @@ CATEGORY RULES:
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_POST, true);
     curl_setopt($ch, CURLOPT_HTTPHEADER, [
-        'Content-Type: application/json; charset=utf-8',
+        'Content-Type: application/json;',
         'Authorization: Bearer ' . $apiKey
     ]);
     curl_setopt($ch, CURLOPT_POSTFIELDS, $jsonPayload);
