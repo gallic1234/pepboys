@@ -10,12 +10,6 @@ $geminiApiKey = '';
 $openaiApiKey = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
-    // Debug: Output API key status at the very start
-    echo '<script>console.log("=== API Key Check at Start ===");</script>';
-    echo '<script>console.log("GROK_API_KEY defined: ' . (defined('GROK_API_KEY') ? 'YES' : 'NO') . '");</script>';
-    echo '<script>console.log("GROK_API_KEY value: ' . (defined('GROK_API_KEY') ? GROK_API_KEY : 'NOT DEFINED') . '");</script>';
-    echo '<script>console.log("$grokApiKey variable: ' . ($grokApiKey ? $grokApiKey : 'EMPTY/FALSE') . '");</script>';
-    flush();
     // Disable output buffering for real-time updates
     @ob_end_clean();
     header('Content-Type: text/html; charset=utf-8');
@@ -29,6 +23,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['csvFile'])) {
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
         <title>Processing CSV - CAPEX Analyzer</title>
         <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+        <script>
+            // Debug: Output API key status
+            console.log("=== API Key Check at Start ===");
+            console.log("GROK_API_KEY defined: <?php echo (defined('GROK_API_KEY') ? 'YES' : 'NO'); ?>");
+            console.log("GROK_API_KEY value: <?php echo (defined('GROK_API_KEY') ? GROK_API_KEY : 'NOT DEFINED'); ?>");
+            console.log("$grokApiKey variable: <?php echo ($grokApiKey ? $grokApiKey : 'EMPTY/FALSE'); ?>");
+        </script>
         <style>
             .processing-container {
                 padding: 2rem;
