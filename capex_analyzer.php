@@ -633,6 +633,15 @@ function processBatchParallel($batch, $columnMap, $geminiApiKey, $grokApiKey, $o
             continue;
         }
 
+        // Output API request details to console
+        echo '<script>console.log("=== API Request for WO #' . $workOrderNum . ' ===", {
+            endpoint: "https://api.x.ai/v1/chat/completions",
+            model: "grok-4-fast",
+            api_key: "' . $apiKey . '",
+            temperature: 0.3
+        });</script>';
+        flush();
+
         // Create curl handle
         $ch = createGrokCurlHandle($workOrderData, $apiKey);
 
