@@ -716,7 +716,7 @@ Total Tax: $" . number_format($workOrder['total_tax'], 2) . "
 Respond with CAPEX/OPEX determination and justification.";
 
     $data = [
-        'model' => 'grok-4-fast-reasoning',
+        'model' => 'grok-code-fast-1',
         'messages' => [
             ['role' => 'user', 'content' => $prompt]
         ],
