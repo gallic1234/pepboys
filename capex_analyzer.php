@@ -709,7 +709,7 @@ Total Tax: $" . number_format($workOrder['total_tax'], 2) . "
 Respond with CAPEX/OPEX determination and justification.";
 
     $data = [
-        'model' => 'grok-code-fast-1',
+        'model' => 'grok-4-fast',
         'messages' => [
             ['role' => 'user', 'content' => $prompt]
         ],
@@ -779,7 +779,7 @@ function retrySingleRequest($workOrderNum, $rows, $columnMap, $grokApiKey) {
         'Expect: '
     ]);
     curl_setopt($ch, CURLOPT_POSTFIELDS, json_encode([
-        'model' => 'grok-code-fast-1',
+        'model' => 'grok-4-fast',
         'messages' => [
             ['role' => 'user', 'content' => $prompt]
         ],
@@ -1420,18 +1420,21 @@ ALLOCATION PROCESS:
 4. SHIPPING/FREIGHT RULE: If ANY materials in the work order are CAPEX, then ALL shipping and freight charges are 100% CAPEX
 5. LABOR RULE: Allocate labor proportionally based on the CAPEX/OPEX material ratio (e.g., 80% CAPEX materials = 80% of labor is CAPEX)
 6. TRIP CHARGES: Follow the same proportional allocation as labor
+7. TAXES: Follow the same proportional allocation as labor and trip charges based on the material ratio
 
 REMEMBER:
 - Materials/parts/equipment: Must be either CAPEX:100% OPEX:0% or CAPEX:0% OPEX:100%
 - Shipping/Freight: If ANY materials are CAPEX, then CAPEX:100% OPEX:0%
 - Labor: Split based on material ratio (e.g., CAPEX:70% OPEX:30% if materials are 70/30)
 - Trip charges: Split same as labor
+- Taxes: Split same as labor and trip charges based on material ratio
 
-EXAMPLE: If work order has $800 fan motor (CAPEX), $200 filters (OPEX), $300 labor, $50 shipping:
+EXAMPLE: If work order has $800 fan motor (CAPEX), $200 filters (OPEX), $300 labor, $50 shipping, $85 tax:
 - Fan motor: CAPEX:100% OPEX:0%
 - Filters: CAPEX:0% OPEX:100%
-- Labor: CAPEX:80% OPEX:20% (based on $800/$1000 material ratio)
-- Shipping: CAPEX:100% OPEX:0% (because CAPEX materials exist)
+- Labor: CAPEX:80% OPEX:20% (based on $800/$1000 material ratio = $240 CAPEX labor, $60 OPEX labor)
+- Shipping: CAPEX:100% OPEX:0% (because CAPEX materials exist = $50 CAPEX)
+- Tax: CAPEX:80% OPEX:20% (same as labor ratio = $68 CAPEX tax, $17 OPEX tax)
 
 IMPORTANT: First check if the work order contains the word 'temporary' - if it does, ALL items are OPEX.
 
@@ -1454,7 +1457,7 @@ CATEGORY RULES:
   * Heater Replacement: HVAC systems, heating units, cooling systems, air handlers, compressors, refrigeration units, ventilation equipment";
 
     $data = [
-        'model' => 'grok-code-fast-1',
+        'model' => 'grok-4-fast',
         'messages' => [
             [
                 'role' => 'user',
@@ -1610,7 +1613,7 @@ CATEGORY RULES:
   * Heater Replacement: HVAC, heating, cooling, compressors, air handlers, refrigeration";
 
     $data = [
-        'model' => 'grok-code-fast-1',
+        'model' => 'grok-4-fast',
         'messages' => [
             [
                 'role' => 'user',
