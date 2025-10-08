@@ -637,7 +637,10 @@ function processBatchParallel($batch, $columnMap, $geminiApiKey, $grokApiKey, $o
         echo '<script>console.log("=== API Request for WO #' . $workOrderNum . ' ===", {
             endpoint: "https://api.x.ai/v1/chat/completions",
             model: "grok-4-fast",
+            key_index: ' . ($keyIndex - 1) . ',
+            total_keys: ' . count($apiKeys) . ',
             api_key: "' . $apiKey . '",
+            api_key_last_6: "' . substr($apiKey, -6) . '",
             temperature: 0.3
         });</script>';
         flush();
